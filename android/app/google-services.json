@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "757155236599",
+    "project_id": "studentmate-9ef99",
+    "storage_bucket": "studentmate-9ef99.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:757155236599:android:5904abf27818553037a1f2",
+        "android_client_info": {
+          "package_name": "com.example.student_mate"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBr09AQHn5wKclcFQTypcBycQhOxn-eAA8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
