@@ -1,7 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+
 import 'login_screen.dart';
+import 'tabs/tasks_tab.dart';
+import 'tabs/schedule_tab.dart';
+import 'tabs/gpa_tab.dart';
+import 'tabs/notes_tab.dart';
+import 'tabs/profile_tab.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -11,62 +17,28 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  final _auth = FirebaseAuth.instance;
-  final _db = FirebaseFirestore.instance;
+  int currentIndex = 0;
 
-  String get uid => _auth.currentUser!.uid;
+  final pages = const [
+    TasksTab(),
+    ScheduleTab(),
+    GpaTab(),
+    NotesTab(),
+    ProfileTab(),
+  ];
 
-  DocumentReference<Map<String, dynamic>> get userDoc =>
-      _db.collection('users').doc(uid);
-
-  CollectionReference<Map<String, dynamic>> get tasksRef =>
-      _db.collection('users').doc(uid).collection('tasks');
-
-  Future<void> addTask(String title) async {
-    await tasksRef.add({
-      'title': title,
-      'createdAt': FieldValue.serverTimestamp(),
-    });
-  }
-
-  Future<void> deleteTask(String docId) async {
-    await tasksRef.doc(docId).delete();
-  }
-
-  void showAddTaskDialog() {
-    final controller = TextEditingController();
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text("Add Task"),
-        content: TextField(
-          controller: controller,
-          decoration: const InputDecoration(hintText: "Enter task"),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text("Cancel"),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              final text = controller.text.trim();
-              if (text.isNotEmpty) {
-                await addTask(text);
-              }
-              if (context.mounted) Navigator.pop(context);
-            },
-            child: const Text("Add"),
-          ),
-        ],
-      ),
+  Future<void> logout() async {
+    await FirebaseAuth.instance.signOut();
+    if (!mounted) return;
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (_) => const LoginScreen()),
     );
   }
 
-  // (اختياري) لو الحساب قديم بدون اسم، نقدر نضيف اسم بسرعة
   void showSetNameDialog() {
     final controller = TextEditingController();
+    final uid = FirebaseAuth.instance.currentUser!.uid;
 
     showDialog(
       context: context,
@@ -85,7 +57,10 @@ class _HomeScreenState extends State<HomeScreen> {
             onPressed: () async {
               final name = controller.text.trim();
               if (name.isNotEmpty) {
-                await userDoc.set({'name': name}, SetOptions(merge: true));
+                await FirebaseFirestore.instance
+                    .collection('users')
+                    .doc(uid)
+                    .set({'name': name}, SetOptions(merge: true));
               }
               if (context.mounted) Navigator.pop(context);
             },
@@ -96,31 +71,23 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Future<void> logout() async {
-    await FirebaseAuth.instance.signOut();
-    if (!mounted) return;
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (_) => const LoginScreen()),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
+    final uid = FirebaseAuth.instance.currentUser!.uid;
+
     return Scaffold(
       appBar: AppBar(
         title: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-          stream: userDoc.snapshots(),
+          stream: FirebaseFirestore.instance.collection('users').doc(uid).snapshots(),
           builder: (context, snapshot) {
-            final data = snapshot.data?.data();
-            final name = (data?['name'] ?? 'Student').toString();
+            final name = (snapshot.data?.data()?['name'] ?? 'Student').toString();
             return Text('Welcome, $name');
           },
         ),
         actions: [
           IconButton(
             icon: const Icon(Icons.person),
-            onPressed: showSetNameDialog, // يساعد للحسابات القديمة
+            onPressed: showSetNameDialog,
           ),
           IconButton(
             icon: const Icon(Icons.logout),
@@ -128,41 +95,18 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-      body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-        stream: tasksRef.orderBy('createdAt', descending: true).snapshots(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (snapshot.hasError) {
-            return Center(child: Text("Error: ${snapshot.error}"));
-          }
-
-          final docs = snapshot.data?.docs ?? [];
-          if (docs.isEmpty) {
-            return const Center(child: Text("No tasks yet"));
-          }
-
-          return ListView.builder(
-            itemCount: docs.length,
-            itemBuilder: (context, index) {
-              final doc = docs[index];
-              final title = (doc.data()['title'] ?? '').toString();
-
-              return ListTile(
-                title: Text(title),
-                trailing: IconButton(
-                  icon: const Icon(Icons.delete),
-                  onPressed: () => deleteTask(doc.id),
-                ),
-              );
-            },
-          );
-        },
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: showAddTaskDialog,
-        child: const Icon(Icons.add),
+      body: pages[currentIndex],
+      bottomNavigationBar: BottomNavigationBar(
+        currentIndex: currentIndex,
+        onTap: (i) => setState(() => currentIndex = i),
+        type: BottomNavigationBarType.fixed,
+        items: const [
+          BottomNavigationBarItem(icon: Icon(Icons.checklist), label: 'Tasks'),
+          BottomNavigationBarItem(icon: Icon(Icons.calendar_month), label: 'Schedule'),
+          BottomNavigationBarItem(icon: Icon(Icons.calculate), label: 'GPA'),
+          BottomNavigationBarItem(icon: Icon(Icons.notes), label: 'Notes'),
+          BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Profile'),
+        ],
       ),
     );
   }
