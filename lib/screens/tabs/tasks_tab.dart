@@ -2,42 +2,24 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-class TasksTab extends StatefulWidget {
+import '../../theme/app_theme.dart';
+
+class TasksTab extends StatelessWidget {
   const TasksTab({super.key});
 
-  @override
-  State<TasksTab> createState() => _TasksTabState();
-}
+  String get _uid => FirebaseAuth.instance.currentUser!.uid;
 
-class _TasksTabState extends State<TasksTab> {
-  final _auth = FirebaseAuth.instance;
-  final _db = FirebaseFirestore.instance;
+  CollectionReference<Map<String, dynamic>> get _tasksRef =>
+      FirebaseFirestore.instance.collection('users').doc(_uid).collection('tasks');
 
-  String get uid => _auth.currentUser!.uid;
-
-  CollectionReference<Map<String, dynamic>> get tasksRef =>
-      _db.collection('users').doc(uid).collection('tasks');
-
-  Future<void> addTask(String title) async {
-    await tasksRef.add({
-      'title': title,
-      'createdAt': FieldValue.serverTimestamp(),
-    });
-  }
-
-  Future<void> deleteTask(String docId) async {
-    await tasksRef.doc(docId).delete();
-  }
-
-  void showAddTaskDialog() {
-    final controller = TextEditingController();
-
-    showDialog(
+  Future<void> _addTask(BuildContext context) async {
+    final c = TextEditingController();
+    await showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (_) => AlertDialog(
         title: const Text("Add Task"),
         content: TextField(
-          controller: controller,
+          controller: c,
           decoration: const InputDecoration(hintText: "Enter task"),
         ),
         actions: [
@@ -47,10 +29,15 @@ class _TasksTabState extends State<TasksTab> {
           ),
           ElevatedButton(
             onPressed: () async {
-              final text = controller.text.trim();
-              if (text.isNotEmpty) {
-                await addTask(text);
-              }
+              final text = c.text.trim();
+              if (text.isEmpty) return;
+
+              await _tasksRef.add({
+                'title': text,
+                'done': false,
+                'createdAt': FieldValue.serverTimestamp(),
+              });
+
               if (context.mounted) Navigator.pop(context);
             },
             child: const Text("Add"),
@@ -60,43 +47,107 @@ class _TasksTabState extends State<TasksTab> {
     );
   }
 
+  Future<void> _delete(String id) async {
+    await _tasksRef.doc(id).delete();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-        stream: tasksRef.orderBy('createdAt', descending: true).snapshots(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (snapshot.hasError) {
-            return Center(child: Text("Error: ${snapshot.error}"));
-          }
+      backgroundColor: Colors.transparent,
 
-          final docs = snapshot.data?.docs ?? [];
-          if (docs.isEmpty) {
-            return const Center(child: Text("No tasks yet"));
-          }
+      // ✅ زر + واحد فقط (السفلي)
+      floatingActionButton: FloatingActionButton(
+        onPressed: () => _addTask(context),
+        child: const Icon(Icons.add),
+      ),
 
-          return ListView.builder(
-            itemCount: docs.length,
-            itemBuilder: (context, index) {
-              final doc = docs[index];
-              final title = (doc.data()['title'] ?? '').toString();
-              return ListTile(
-                title: Text(title),
-                trailing: IconButton(
-                  icon: const Icon(Icons.delete),
-                  onPressed: () => deleteTask(doc.id),
-                ),
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [AppTheme.bgTop, AppTheme.bgBottom],
+          ),
+        ),
+        child: SafeArea(
+          child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+            stream: _tasksRef.orderBy('createdAt', descending: true).snapshots(),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              if (snapshot.hasError) {
+                return Center(child: Text("Error: ${snapshot.error}"));
+              }
+
+              final docs = snapshot.data?.docs ?? [];
+
+              return ListView(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 90),
+                children: [
+                  // ✅ عنوان فقط بدون زر + فوق
+                  const Text(
+                    "Your tasks",
+                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900),
+                  ),
+                  const SizedBox(height: 12),
+
+                  if (docs.isEmpty)
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: AppTheme.card,
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(color: AppTheme.dark, width: 2),
+                      ),
+                      child: const Text(
+                        "No tasks yet.\nTap + to add one.",
+                        style: TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                    ),
+
+                  for (final d in docs) ...[
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: AppTheme.card,
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(color: AppTheme.dark, width: 2),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            (d.data()['done'] ?? false) == true
+                                ? Icons.check_circle
+                                : Icons.radio_button_unchecked,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              (d.data()['title'] ?? '').toString(),
+                              style: TextStyle(
+                                fontWeight: FontWeight.w700,
+                                decoration: ((d.data()['done'] ?? false) == true)
+                                    ? TextDecoration.lineThrough
+                                    : null,
+                              ),
+                            ),
+                          ),
+                          IconButton(
+                            onPressed: () => _delete(d.id),
+                            icon: const Icon(Icons.delete),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                ],
               );
             },
-          );
-        },
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: showAddTaskDialog,
-        child: const Icon(Icons.add),
+          ),
+        ),
       ),
     );
   }
