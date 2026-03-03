@@ -14,33 +14,19 @@ class ScheduleTab extends StatefulWidget {
 class _ScheduleTabState extends State<ScheduleTab> {
   String get uid => FirebaseAuth.instance.currentUser!.uid;
 
+  // users/{uid}/schedules
   CollectionReference<Map<String, dynamic>> get scheduleRef =>
       FirebaseFirestore.instance.collection('users').doc(uid).collection('schedules');
 
-  //  لون كروت 
-  static const Color _tileColor = Color(0xFFE9C2B7);
+  // Theme-ish colors (أغمق شوي)
+  static const Color _cardColor = Color(0xFFE4B8AC);
+  static const Color _pill = Color(0xFFC27C86);
 
-  int _toMin(TimeOfDay t) => t.hour * 60 + t.minute;
-
-  String _dayName(int d) {
-    switch (d) {
-      case DateTime.sunday:
-        return 'Sunday';
-      case DateTime.monday:
-        return 'Monday';
-      case DateTime.tuesday:
-        return 'Tuesday';
-      case DateTime.wednesday:
-        return 'Wednesday';
-      case DateTime.thursday:
-        return 'Thursday';
-      case DateTime.friday:
-        return 'Friday';
-      case DateTime.saturday:
-        return 'Saturday';
-      default:
-        return '';
-    }
+  // ----- Helpers -----
+  String _dayName(int weekday) {
+    // 1=Monday .. 7=Sunday
+    const names = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+    return names[(weekday - 1).clamp(0, 6)];
   }
 
   String _fmtMin(int mins) {
@@ -52,7 +38,7 @@ class _ScheduleTabState extends State<ScheduleTab> {
     return '$h:$m$ampm';
   }
 
-  String _fmtDue(DateTime d) {
+  String _fmtDateTime(DateTime d) {
     final months = const ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
     final day = d.day.toString().padLeft(2, '0');
     final mon = months[d.month - 1];
@@ -84,152 +70,268 @@ class _ScheduleTabState extends State<ScheduleTab> {
     return DateTime(date.year, date.month, date.day, time.hour, time.minute);
   }
 
-  Future<void> _toggleDatedDone(String id, bool v) async {
-    await scheduleRef.doc(id).update({'done': v});
+  Future<TimeOfDay?> _pickTime(BuildContext context, TimeOfDay initial) {
+    return showTimePicker(context: context, initialTime: initial);
   }
 
-  Future<void> _delete(String id) async {
-    await scheduleRef.doc(id).delete();
+  int _todToMin(TimeOfDay t) => t.hour * 60 + t.minute;
+
+  // ----- Firestore ops -----
+  Future<void> _addWeekly({
+    required String title,
+    required int dayOfWeek,
+    required int startMin,
+    required int endMin,
+    required String room,
+  }) async {
+    await scheduleRef.add({
+      'type': 'weekly',
+      'title': title,
+      'dayOfWeek': dayOfWeek,
+      'startMin': startMin,
+      'endMin': endMin,
+      'room': room,
+      'createdAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
   }
 
-  void showUpsertDialog({QueryDocumentSnapshot<Map<String, dynamic>>? doc}) {
-    final bool isEdit = doc != null;
-    final String? docId = doc?.id;
-    final Map<String, dynamic> data = doc?.data() ?? <String, dynamic>{};
+  Future<void> _updateWeekly({
+    required String docId,
+    required String title,
+    required int dayOfWeek,
+    required int startMin,
+    required int endMin,
+    required String room,
+  }) async {
+    await scheduleRef.doc(docId).update({
+      'type': 'weekly',
+      'title': title,
+      'dayOfWeek': dayOfWeek,
+      'startMin': startMin,
+      'endMin': endMin,
+      'room': room,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
 
-    final titleCtrl = TextEditingController(text: (data['title'] ?? '').toString());
-    final roomCtrl = TextEditingController(text: (data['room'] ?? '').toString());
+  Future<void> _addDated({
+    required String title,
+    required DateTime start,
+    required DateTime end,
+    required String room,
+  }) async {
+    await scheduleRef.add({
+      'type': 'dated',
+      'title': title,
+      'start': Timestamp.fromDate(start),
+      'end': Timestamp.fromDate(end),
+      'room': room,
+      'done': false,
+      'createdAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
 
-    String type = (data['type'] ?? 'weekly').toString(); // weekly / dated
+  Future<void> _updateDated({
+    required String docId,
+    required String title,
+    required DateTime start,
+    required DateTime end,
+    required String room,
+  }) async {
+    await scheduleRef.doc(docId).update({
+      'type': 'dated',
+      'title': title,
+      'start': Timestamp.fromDate(start),
+      'end': Timestamp.fromDate(end),
+      'room': room,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
 
-    int dayOfWeek = (data['dayOfWeek'] is int) ? data['dayOfWeek'] as int : DateTime.monday;
-    int startMin = (data['startMin'] is int) ? data['startMin'] as int : 8 * 60;
-    int endMin = (data['endMin'] is int) ? data['endMin'] as int : 9 * 60;
+  Future<void> _setDatedDone(String docId, bool v) async {
+    await scheduleRef.doc(docId).update({
+      'done': v,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
 
-    DateTime startDT =
-        (data['start'] is Timestamp) ? (data['start'] as Timestamp).toDate() : DateTime.now();
-    DateTime endDT = (data['end'] is Timestamp)
-        ? (data['end'] as Timestamp).toDate()
-        : DateTime.now().add(const Duration(hours: 1));
+  Future<void> _delete(String docId) async {
+    await scheduleRef.doc(docId).delete();
+  }
+
+  // ----- Dialogs -----
+  void _showAddDialog() {
+    final titleCtrl = TextEditingController();
+    final roomCtrl = TextEditingController();
+
+    bool isDated = false; // default weekly
+    int dayOfWeek = DateTime.monday;
+
+    TimeOfDay startT = const TimeOfDay(hour: 8, minute: 0);
+    TimeOfDay endT = const TimeOfDay(hour: 9, minute: 0);
+
+    DateTime startDT = DateTime.now().add(const Duration(hours: 1));
+    DateTime endDT = DateTime.now().add(const Duration(hours: 2));
 
     showDialog(
       context: context,
       builder: (_) => StatefulBuilder(
         builder: (context, setLocal) => AlertDialog(
-          title: Text(isEdit ? "Edit schedule" : "Add schedule"),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: titleCtrl,
-                decoration: const InputDecoration(hintText: "Title"),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: roomCtrl,
-                decoration: const InputDecoration(hintText: "Room (optional)"),
-              ),
-              const SizedBox(height: 12),
-
-              DropdownButtonFormField<String>(
-                value: type,
-                items: const [
-                  DropdownMenuItem(value: 'weekly', child: Text("Weekly class")),
-                  DropdownMenuItem(value: 'dated', child: Text("Exam / Event")),
-                ],
-                onChanged: (v) => setLocal(() => type = v ?? 'weekly'),
-                decoration: const InputDecoration(labelText: "Type"),
-              ),
-              const SizedBox(height: 12),
-
-              if (type == 'weekly') ...[
-                DropdownButtonFormField<int>(
-                  value: dayOfWeek,
-                  items: const [
-                    DropdownMenuItem(value: DateTime.sunday, child: Text("Sunday")),
-                    DropdownMenuItem(value: DateTime.monday, child: Text("Monday")),
-                    DropdownMenuItem(value: DateTime.tuesday, child: Text("Tuesday")),
-                    DropdownMenuItem(value: DateTime.wednesday, child: Text("Wednesday")),
-                    DropdownMenuItem(value: DateTime.thursday, child: Text("Thursday")),
-                    DropdownMenuItem(value: DateTime.friday, child: Text("Friday")),
-                    DropdownMenuItem(value: DateTime.saturday, child: Text("Saturday")),
+          title: Text(isDated ? "Add exam / event" : "Add weekly class"),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Type toggle
+                Row(
+                  children: [
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () => setLocal(() => isDated = false),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          decoration: BoxDecoration(
+                            color: isDated ? const Color(0xFFEFE6E2) : _pill,
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: Text(
+                            "Weekly",
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontWeight: FontWeight.w900,
+                              color: isDated ? Colors.black : Colors.white,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () => setLocal(() => isDated = true),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          decoration: BoxDecoration(
+                            color: isDated ? _pill : const Color(0xFFEFE6E2),
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: Text(
+                            "Dated",
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontWeight: FontWeight.w900,
+                              color: isDated ? Colors.white : Colors.black,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
                   ],
-                  onChanged: (v) => setLocal(() => dayOfWeek = v ?? DateTime.monday),
-                  decoration: const InputDecoration(labelText: "Day"),
+                ),
+
+                const SizedBox(height: 12),
+
+                TextField(
+                  controller: titleCtrl,
+                  decoration: InputDecoration(
+                    hintText: isDated ? "Title (e.g., Midterm)" : "Course (e.g., SWE356)",
+                  ),
                 ),
                 const SizedBox(height: 10),
 
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text("Start: ${_fmtMin(startMin)}",
-                          style: const TextStyle(fontWeight: FontWeight.w800)),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.access_time),
-                      onPressed: () async {
-                        final picked = await showTimePicker(
-                          context: context,
-                          initialTime: TimeOfDay(hour: startMin ~/ 60, minute: startMin % 60),
-                        );
-                        if (picked != null) setLocal(() => startMin = _toMin(picked));
-                      },
-                    ),
-                  ],
+                TextField(
+                  controller: roomCtrl,
+                  decoration: const InputDecoration(
+                    hintText: "Room (optional)",
+                  ),
                 ),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text("End: ${_fmtMin(endMin)}",
-                          style: const TextStyle(fontWeight: FontWeight.w800)),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.access_time),
-                      onPressed: () async {
-                        final picked = await showTimePicker(
-                          context: context,
-                          initialTime: TimeOfDay(hour: endMin ~/ 60, minute: endMin % 60),
-                        );
-                        if (picked != null) setLocal(() => endMin = _toMin(picked));
-                      },
-                    ),
-                  ],
-                ),
-              ],
+                const SizedBox(height: 12),
 
-              if (type == 'dated') ...[
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text("Start: ${startDT.toString().substring(0, 16)}",
-                          style: const TextStyle(fontWeight: FontWeight.w800)),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.event),
-                      onPressed: () async {
-                        final picked = await _pickDateTime(context, startDT);
-                        if (picked != null) setLocal(() => startDT = picked);
-                      },
-                    ),
-                  ],
-                ),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text("End: ${endDT.toString().substring(0, 16)}",
-                          style: const TextStyle(fontWeight: FontWeight.w800)),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.event),
-                      onPressed: () async {
-                        final picked = await _pickDateTime(context, endDT);
-                        if (picked != null) setLocal(() => endDT = picked);
-                      },
-                    ),
-                  ],
-                ),
+                if (!isDated) ...[
+                  // Weekly fields
+                  DropdownButtonFormField<int>(
+                    value: dayOfWeek,
+                    items: const [
+                      DropdownMenuItem(value: 1, child: Text("Monday")),
+                      DropdownMenuItem(value: 2, child: Text("Tuesday")),
+                      DropdownMenuItem(value: 3, child: Text("Wednesday")),
+                      DropdownMenuItem(value: 4, child: Text("Thursday")),
+                      DropdownMenuItem(value: 5, child: Text("Friday")),
+                      DropdownMenuItem(value: 6, child: Text("Saturday")),
+                      DropdownMenuItem(value: 7, child: Text("Sunday")),
+                    ],
+                    onChanged: (v) => setLocal(() => dayOfWeek = v ?? 1),
+                    decoration: const InputDecoration(labelText: "Day"),
+                  ),
+                  const SizedBox(height: 10),
+
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text("Start: ${startT.format(context)}",
+                            style: const TextStyle(fontWeight: FontWeight.w800)),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.access_time),
+                        onPressed: () async {
+                          final p = await _pickTime(context, startT);
+                          if (p != null) setLocal(() => startT = p);
+                        },
+                      ),
+                    ],
+                  ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text("End: ${endT.format(context)}",
+                            style: const TextStyle(fontWeight: FontWeight.w800)),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.access_time),
+                        onPressed: () async {
+                          final p = await _pickTime(context, endT);
+                          if (p != null) setLocal(() => endT = p);
+                        },
+                      ),
+                    ],
+                  ),
+                ] else ...[
+                  // Dated fields
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text("Start: ${_fmtDateTime(startDT)}",
+                            style: const TextStyle(fontWeight: FontWeight.w800)),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.event),
+                        onPressed: () async {
+                          final p = await _pickDateTime(context, startDT);
+                          if (p != null) setLocal(() => startDT = p);
+                        },
+                      ),
+                    ],
+                  ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text("End: ${_fmtDateTime(endDT)}",
+                            style: const TextStyle(fontWeight: FontWeight.w800)),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.event),
+                        onPressed: () async {
+                          final p = await _pickDateTime(context, endDT);
+                          if (p != null) setLocal(() => endDT = p);
+                        },
+                      ),
+                    ],
+                  ),
+                ],
               ],
-            ],
+            ),
           ),
           actions: [
             TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
@@ -237,62 +339,30 @@ class _ScheduleTabState extends State<ScheduleTab> {
               onPressed: () async {
                 final title = titleCtrl.text.trim();
                 final room = roomCtrl.text.trim();
-                final roomValue = room.isEmpty ? null : room;
-
                 if (title.isEmpty) return;
 
-                if (type == 'weekly') {
-                  final s = startMin;
-                  final e = endMin;
-                  final fixedStart = s <= e ? s : e;
-                  final fixedEnd = s <= e ? e : s;
-
-                  final payload = <String, dynamic>{
-                    'title': title,
-                    'room': roomValue,
-                    'type': 'weekly',
-                    'dayOfWeek': dayOfWeek,
-                    'startMin': fixedStart,
-                    'endMin': fixedEnd,
-                    'updatedAt': FieldValue.serverTimestamp(),
-                  };
-
-                  if (isEdit && docId != null) {
-                    await scheduleRef.doc(docId).update(payload);
-                  } else {
-                    await scheduleRef.add({
-                      ...payload,
-                      'createdAt': FieldValue.serverTimestamp(),
-                    });
-                  }
-                } else {
-                  DateTime s = startDT;
-                  DateTime e = endDT;
-                  if (e.isBefore(s)) {
+                if (!isDated) {
+                  int s = _todToMin(startT);
+                  int e = _todToMin(endT);
+                  if (e < s) {
                     final tmp = s;
                     s = e;
                     e = tmp;
                   }
-
-                  final payload = <String, dynamic>{
-                    'title': title,
-                    'room': roomValue,
-                    'type': 'dated',
-                    'start': Timestamp.fromDate(s),
-                    'end': Timestamp.fromDate(e),
-                    'done': (data['done'] ?? false) == true ? true : false,
-                    'updatedAt': FieldValue.serverTimestamp(),
-                  };
-
-                  if (isEdit && docId != null) {
-                    await scheduleRef.doc(docId).update(payload);
-                  } else {
-                    await scheduleRef.add({
-                      ...payload,
-                      'done': false,
-                      'createdAt': FieldValue.serverTimestamp(),
-                    });
+                  await _addWeekly(
+                    title: title,
+                    dayOfWeek: dayOfWeek,
+                    startMin: s,
+                    endMin: e,
+                    room: room,
+                  );
+                } else {
+                  if (endDT.isBefore(startDT)) {
+                    final tmp = startDT;
+                    startDT = endDT;
+                    endDT = tmp;
                   }
+                  await _addDated(title: title, start: startDT, end: endDT, room: room);
                 }
 
                 if (context.mounted) Navigator.pop(context);
@@ -305,19 +375,383 @@ class _ScheduleTabState extends State<ScheduleTab> {
     );
   }
 
+  void _showEditWeeklyDialog(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
+    final data = doc.data();
+    final titleCtrl = TextEditingController(text: (data['title'] ?? '').toString());
+    final roomCtrl = TextEditingController(text: (data['room'] ?? '').toString());
+
+    int dayOfWeek = (data['dayOfWeek'] is int) ? data['dayOfWeek'] as int : 1;
+    int startMin = (data['startMin'] is int) ? data['startMin'] as int : 480;
+    int endMin = (data['endMin'] is int) ? data['endMin'] as int : 540;
+
+    TimeOfDay startT = TimeOfDay(hour: startMin ~/ 60, minute: startMin % 60);
+    TimeOfDay endT = TimeOfDay(hour: endMin ~/ 60, minute: endMin % 60);
+
+    showDialog(
+      context: context,
+      builder: (_) => StatefulBuilder(
+        builder: (context, setLocal) => AlertDialog(
+          title: const Text("Edit weekly class"),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(controller: titleCtrl, decoration: const InputDecoration(hintText: "Course")),
+                const SizedBox(height: 10),
+                TextField(controller: roomCtrl, decoration: const InputDecoration(hintText: "Room (optional)")),
+                const SizedBox(height: 10),
+                DropdownButtonFormField<int>(
+                  value: dayOfWeek,
+                  items: const [
+                    DropdownMenuItem(value: 1, child: Text("Monday")),
+                    DropdownMenuItem(value: 2, child: Text("Tuesday")),
+                    DropdownMenuItem(value: 3, child: Text("Wednesday")),
+                    DropdownMenuItem(value: 4, child: Text("Thursday")),
+                    DropdownMenuItem(value: 5, child: Text("Friday")),
+                    DropdownMenuItem(value: 6, child: Text("Saturday")),
+                    DropdownMenuItem(value: 7, child: Text("Sunday")),
+                  ],
+                  onChanged: (v) => setLocal(() => dayOfWeek = v ?? 1),
+                  decoration: const InputDecoration(labelText: "Day"),
+                ),
+                const SizedBox(height: 10),
+
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text("Start: ${startT.format(context)}",
+                          style: const TextStyle(fontWeight: FontWeight.w800)),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.access_time),
+                      onPressed: () async {
+                        final p = await _pickTime(context, startT);
+                        if (p != null) setLocal(() => startT = p);
+                      },
+                    ),
+                  ],
+                ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text("End: ${endT.format(context)}",
+                          style: const TextStyle(fontWeight: FontWeight.w800)),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.access_time),
+                      onPressed: () async {
+                        final p = await _pickTime(context, endT);
+                        if (p != null) setLocal(() => endT = p);
+                      },
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
+            ElevatedButton(
+              onPressed: () async {
+                final title = titleCtrl.text.trim();
+                final room = roomCtrl.text.trim();
+                if (title.isEmpty) return;
+
+                int s = _todToMin(startT);
+                int e = _todToMin(endT);
+                if (e < s) {
+                  final tmp = s;
+                  s = e;
+                  e = tmp;
+                }
+
+                await _updateWeekly(
+                  docId: doc.id,
+                  title: title,
+                  dayOfWeek: dayOfWeek,
+                  startMin: s,
+                  endMin: e,
+                  room: room,
+                );
+
+                if (context.mounted) Navigator.pop(context);
+              },
+              child: const Text("Save"),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showEditDatedDialog(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
+    final data = doc.data();
+    final titleCtrl = TextEditingController(text: (data['title'] ?? '').toString());
+    final roomCtrl = TextEditingController(text: (data['room'] ?? '').toString());
+
+    DateTime startDT = (data['start'] as Timestamp).toDate();
+    DateTime endDT = (data['end'] as Timestamp).toDate();
+
+    showDialog(
+      context: context,
+      builder: (_) => StatefulBuilder(
+        builder: (context, setLocal) => AlertDialog(
+          title: const Text("Edit exam / event"),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(controller: titleCtrl, decoration: const InputDecoration(hintText: "Title")),
+                const SizedBox(height: 10),
+                TextField(controller: roomCtrl, decoration: const InputDecoration(hintText: "Room (optional)")),
+                const SizedBox(height: 12),
+
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text("Start: ${_fmtDateTime(startDT)}",
+                          style: const TextStyle(fontWeight: FontWeight.w800)),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.event),
+                      onPressed: () async {
+                        final p = await _pickDateTime(context, startDT);
+                        if (p != null) setLocal(() => startDT = p);
+                      },
+                    ),
+                  ],
+                ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text("End: ${_fmtDateTime(endDT)}",
+                          style: const TextStyle(fontWeight: FontWeight.w800)),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.event),
+                      onPressed: () async {
+                        final p = await _pickDateTime(context, endDT);
+                        if (p != null) setLocal(() => endDT = p);
+                      },
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
+            ElevatedButton(
+              onPressed: () async {
+                final title = titleCtrl.text.trim();
+                final room = roomCtrl.text.trim();
+                if (title.isEmpty) return;
+
+                if (endDT.isBefore(startDT)) {
+                  final tmp = startDT;
+                  startDT = endDT;
+                  endDT = tmp;
+                }
+
+                await _updateDated(
+                  docId: doc.id,
+                  title: title,
+                  start: startDT,
+                  end: endDT,
+                  room: room,
+                );
+
+                if (context.mounted) Navigator.pop(context);
+              },
+              child: const Text("Save"),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ----- UI builders -----
+  Widget _sectionTitle(String text) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 10, bottom: 8),
+      child: Text(
+        text,
+        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
+      ),
+    );
+  }
+
+  Widget _weeklyTile({
+    required String title,
+    required String timeText,
+    required String room,
+    required VoidCallback onEdit,
+    required VoidCallback onDelete,
+  }) {
+    final roomText = room.trim().isEmpty ? "" : " • Room: $room";
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: _cardColor,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppTheme.dark, width: 2),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(title, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+              const SizedBox(height: 6),
+              Text(
+                "$timeText$roomText",
+                style: const TextStyle(fontWeight: FontWeight.w800),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ]),
+          ),
+          IconButton(onPressed: onEdit, icon: const Icon(Icons.edit)),
+          IconButton(onPressed: onDelete, icon: const Icon(Icons.delete)),
+        ],
+      ),
+    );
+  }
+
+  Widget _datedUpcomingTile({
+    required String title,
+    required DateTime start,
+    required DateTime end,
+    required String room,
+    required VoidCallback onComplete,
+    required VoidCallback onEdit,
+    required VoidCallback onDelete,
+  }) {
+    final roomText = room.trim().isEmpty ? "" : " • Room: $room";
+    final timeText = "${_fmtDateTime(start)}  →  ${_fmtDateTime(end)}$roomText";
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: _cardColor,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppTheme.dark, width: 2),
+      ),
+      child: Row(
+        children: [
+          GestureDetector(
+            onTap: onComplete,
+            child: const Icon(Icons.radio_button_unchecked),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(title, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+              const SizedBox(height: 6),
+              Text(
+                timeText,
+                style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ]),
+          ),
+          IconButton(onPressed: onEdit, icon: const Icon(Icons.edit)),
+          IconButton(onPressed: onDelete, icon: const Icon(Icons.delete)),
+        ],
+      ),
+    );
+  }
+
+  // ✅ Expired: حذف فقط (بدون تشيك/قلم/أيقونات)
+  Widget _datedExpiredDeleteOnly({
+    required String title,
+    required DateTime start,
+    required DateTime end,
+    required String room,
+    required VoidCallback onDelete,
+  }) {
+    final roomText = room.trim().isEmpty ? "" : " • Room: $room";
+    final timeText = "${_fmtDateTime(start)}  →  ${_fmtDateTime(end)}$roomText";
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: _cardColor,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppTheme.dark, width: 2),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(title, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+              const SizedBox(height: 6),
+              Text(
+                timeText,
+                style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12, color: Colors.red),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ]),
+          ),
+          IconButton(onPressed: onDelete, icon: const Icon(Icons.delete)),
+        ],
+      ),
+    );
+  }
+
+  Widget _datedCompletedTile({
+    required String title,
+    required DateTime start,
+    required DateTime end,
+    required String room,
+    required VoidCallback onDelete,
+  }) {
+    final roomText = room.trim().isEmpty ? "" : " • Room: $room";
+    final timeText = "${_fmtDateTime(start)}  →  ${_fmtDateTime(end)}$roomText";
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: _cardColor,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppTheme.dark, width: 2),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.check_circle),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(title, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+              const SizedBox(height: 6),
+              Text(
+                timeText,
+                style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ]),
+          ),
+          IconButton(onPressed: onDelete, icon: const Icon(Icons.delete)),
+        ],
+      ),
+    );
+  }
+
+  // ----- Build -----
   @override
   Widget build(BuildContext context) {
     final now = DateTime.now();
 
     return Scaffold(
       backgroundColor: Colors.transparent,
-
-      //  + واحد فقط تحت
+      // ✅ زر + واحد فقط تحت
       floatingActionButton: FloatingActionButton(
-        onPressed: () => showUpsertDialog(),
+        onPressed: _showAddDialog,
         child: const Icon(Icons.add),
       ),
-
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
@@ -333,176 +767,169 @@ class _ScheduleTabState extends State<ScheduleTab> {
               if (snapshot.connectionState == ConnectionState.waiting) {
                 return const Center(child: CircularProgressIndicator());
               }
-              if (snapshot.hasError) return Center(child: Text("Error: ${snapshot.error}"));
+              if (snapshot.hasError) {
+                return Center(child: Text("Error: ${snapshot.error}"));
+              }
 
-              final docs = snapshot.data?.docs ?? [];
+              final all = snapshot.data?.docs ?? [];
 
+              // Split
               final weekly = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
-              final datedUpcoming = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
-              final datedDone = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+              final upcoming = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+              final expired = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+              final completed = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
 
-              for (final d in docs) {
+              for (final d in all) {
                 final data = d.data();
                 final type = (data['type'] ?? 'weekly').toString();
-                if (type == 'dated') {
-                  final done = (data['done'] ?? false) == true;
-                  if (done) {
-                    datedDone.add(d);
-                  } else {
-                    datedUpcoming.add(d);
+
+                if (type == 'weekly') {
+                  if (data['dayOfWeek'] is int && data['startMin'] is int && data['endMin'] is int) {
+                    weekly.add(d);
                   }
                 } else {
-                  weekly.add(d);
+                  // dated
+                  if (data['start'] is! Timestamp || data['end'] is! Timestamp) continue;
+                  final done = (data['done'] ?? false) == true;
+                  final start = (data['start'] as Timestamp).toDate();
+
+                  if (done) {
+                    completed.add(d);
+                  } else if (start.isBefore(now)) {
+                    expired.add(d);
+                  } else {
+                    upcoming.add(d);
+                  }
                 }
               }
 
-              final weekOrder = const [
-                DateTime.sunday,
-                DateTime.monday,
-                DateTime.tuesday,
-                DateTime.wednesday,
-                DateTime.thursday,
-                DateTime.friday,
-                DateTime.saturday,
-              ];
+              // sort weekly: day then start
+              weekly.sort((a, b) {
+                final ad = (a.data()['dayOfWeek'] ?? 0) as int;
+                final bd = (b.data()['dayOfWeek'] ?? 0) as int;
+                if (ad != bd) return ad.compareTo(bd);
+                final as = (a.data()['startMin'] ?? 0) as int;
+                final bs = (b.data()['startMin'] ?? 0) as int;
+                return as.compareTo(bs);
+              });
 
-              final Map<int, List<QueryDocumentSnapshot<Map<String, dynamic>>>> byDay = {};
-              for (final d in weekly) {
-                final data = d.data();
-                if (data['dayOfWeek'] is int) {
-                  final dow = data['dayOfWeek'] as int;
-                  byDay.putIfAbsent(dow, () => []);
-                  byDay[dow]!.add(d);
-                }
-              }
-
-              for (final dow in byDay.keys) {
-                byDay[dow]!.sort((a, b) {
-                  final aMin = (a.data()['startMin'] ?? 0) as int;
-                  final bMin = (b.data()['startMin'] ?? 0) as int;
-                  return aMin.compareTo(bMin);
-                });
-              }
-
-              datedUpcoming.sort((a, b) {
+              // sort upcoming by nearest start
+              upcoming.sort((a, b) {
                 final aS = (a.data()['start'] as Timestamp).toDate();
                 final bS = (b.data()['start'] as Timestamp).toDate();
                 return aS.compareTo(bS);
               });
 
-              datedDone.sort((a, b) {
+              // sort expired newest first
+              expired.sort((a, b) {
                 final aS = (a.data()['start'] as Timestamp).toDate();
                 final bS = (b.data()['start'] as Timestamp).toDate();
                 return bS.compareTo(aS);
               });
 
+              // completed newest first
+              completed.sort((a, b) {
+                final aS = (a.data()['start'] as Timestamp).toDate();
+                final bS = (b.data()['start'] as Timestamp).toDate();
+                return bS.compareTo(aS);
+              });
+
+              // group weekly by day
+              final Map<int, List<QueryDocumentSnapshot<Map<String, dynamic>>>> weeklyByDay = {};
+              for (final d in weekly) {
+                final day = (d.data()['dayOfWeek'] ?? 1) as int;
+                weeklyByDay.putIfAbsent(day, () => []);
+                weeklyByDay[day]!.add(d);
+              }
+
               return ListView(
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 90),
                 children: [
-                  const Text("Schedule",
-                      style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900)),
+                  const Text(
+                    "Schedule",
+                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900),
+                  ),
                   const SizedBox(height: 10),
 
-                  if (docs.isEmpty)
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: _tileColor,
-                        borderRadius: BorderRadius.circular(18),
-                        border: Border.all(color: AppTheme.dark, width: 2),
-                      ),
-                      child: const Text(
-                        "No schedule yet.\nPress + to add.",
-                        style: TextStyle(fontWeight: FontWeight.w800),
-                      ),
-                    ),
+                  // Weekly
+                  _sectionTitle("Weekly schedule"),
+                  if (weekly.isEmpty)
+                    _InfoCard(text: "No weekly classes yet.", buttonText: "Add", onTap: _showAddDialog),
 
-                  if (byDay.isNotEmpty) ...[
-                    const SizedBox(height: 12),
-                    const Text("Weekly schedule",
-                        style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
-                    const SizedBox(height: 10),
-
-                    for (final dow in weekOrder)
-                      if (byDay.containsKey(dow)) ...[
-                        Padding(
-                          padding: const EdgeInsets.only(top: 10, bottom: 6),
-                          child: Text(_dayName(dow),
-                              style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 14)),
+                  for (final day in [1,2,3,4,5,6,7]) ...[
+                    if ((weeklyByDay[day] ?? []).isNotEmpty) ...[
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8, bottom: 6),
+                        child: Text(
+                          _dayName(day),
+                          style: const TextStyle(fontWeight: FontWeight.w900),
                         ),
-                        for (final d in byDay[dow]!) ...[
-                          _WeeklyTile(
-                            color: _tileColor,
-                            title: (d.data()['title'] ?? '').toString(),
-                            room: (d.data()['room'] ?? '').toString(),
-                            startMin: (d.data()['startMin'] ?? 0) as int,
-                            endMin: (d.data()['endMin'] ?? 0) as int,
-                            fmtMin: _fmtMin,
-                            onEdit: () => showUpsertDialog(doc: d),
-                            onDelete: () => _delete(d.id),
-                          ),
-                          const SizedBox(height: 10),
-                        ],
+                      ),
+                      for (final doc in weeklyByDay[day]!) ...[
+                        _weeklyTile(
+                          title: (doc.data()['title'] ?? '').toString(),
+                          timeText:
+                              "${_fmtMin((doc.data()['startMin'] ?? 0) as int)} → ${_fmtMin((doc.data()['endMin'] ?? 0) as int)}",
+                          room: (doc.data()['room'] ?? '').toString(),
+                          onEdit: () => _showEditWeeklyDialog(doc),
+                          onDelete: () => _delete(doc.id),
+                        ),
                       ],
+                    ]
                   ],
 
-                  const SizedBox(height: 14),
-                  const Text("Exams / Events",
-                      style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 12),
 
-                  if (datedUpcoming.isEmpty)
-                    Container(
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        color: _tileColor,
-                        borderRadius: BorderRadius.circular(18),
-                        border: Border.all(color: AppTheme.dark, width: 2),
-                      ),
-                      child: const Text(
-                        "No upcoming exams/events.",
-                        style: TextStyle(fontWeight: FontWeight.w800),
-                      ),
-                    ),
+                  // Dated
+                  _sectionTitle("Exams / Events"),
 
-                  for (final d in datedUpcoming) ...[
-                    _DatedTile(
-                      color: _tileColor,
-                      title: (d.data()['title'] ?? '').toString(),
-                      room: (d.data()['room'] ?? '').toString(),
-                      start: (d.data()['start'] as Timestamp).toDate(),
-                      end: (d.data()['end'] as Timestamp).toDate(),
-                      fmtDue: _fmtDue,
-                      overdue: ((d.data()['start'] as Timestamp).toDate()).isBefore(now),
-                      done: false,
-                      onToggleDone: () => _toggleDatedDone(d.id, true),
-                      onEdit: () => showUpsertDialog(doc: d),
-                      onDelete: () => _delete(d.id),
-                    ),
-                    const SizedBox(height: 10),
+                  // Upcoming
+                  if (upcoming.isNotEmpty) ...[
+                    const Text("Upcoming", style: TextStyle(fontWeight: FontWeight.w900)),
+                    const SizedBox(height: 8),
+                    for (final doc in upcoming) ...[
+                      _datedUpcomingTile(
+                        title: (doc.data()['title'] ?? '').toString(),
+                        start: (doc.data()['start'] as Timestamp).toDate(),
+                        end: (doc.data()['end'] as Timestamp).toDate(),
+                        room: (doc.data()['room'] ?? '').toString(),
+                        onComplete: () => _setDatedDone(doc.id, true),
+                        onEdit: () => _showEditDatedDialog(doc),
+                        onDelete: () => _delete(doc.id),
+                      ),
+                    ],
+                  ] else
+                    _InfoCard(text: "No upcoming exams/events.", buttonText: "Add", onTap: _showAddDialog),
+
+                  // Expired (✅ حذف فقط)
+                  if (expired.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    const Text("Expired", style: TextStyle(fontWeight: FontWeight.w900)),
+                    const SizedBox(height: 8),
+                    for (final doc in expired) ...[
+                      _datedExpiredDeleteOnly(
+                        title: (doc.data()['title'] ?? '').toString(),
+                        start: (doc.data()['start'] as Timestamp).toDate(),
+                        end: (doc.data()['end'] as Timestamp).toDate(),
+                        room: (doc.data()['room'] ?? '').toString(),
+                        onDelete: () => _delete(doc.id),
+                      ),
+                    ],
                   ],
 
-                  if (datedDone.isNotEmpty) ...[
-                    const SizedBox(height: 16),
-                    const Text("Completed",
-                        style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
-                    const SizedBox(height: 10),
-
-                    for (final d in datedDone) ...[
-                      _DatedTile(
-                        color: _tileColor,
-                        title: (d.data()['title'] ?? '').toString(),
-                        room: (d.data()['room'] ?? '').toString(),
-                        start: (d.data()['start'] as Timestamp).toDate(),
-                        end: (d.data()['end'] as Timestamp).toDate(),
-                        fmtDue: _fmtDue,
-                        overdue: false,
-                        done: true,
-                        onToggleDone: () => _toggleDatedDone(d.id, false),
-                        onEdit: () => showUpsertDialog(doc: d),
-                        onDelete: () => _delete(d.id),
+                  // Completed
+                  if (completed.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    const Text("Completed", style: TextStyle(fontWeight: FontWeight.w900)),
+                    const SizedBox(height: 8),
+                    for (final doc in completed) ...[
+                      _datedCompletedTile(
+                        title: (doc.data()['title'] ?? '').toString(),
+                        start: (doc.data()['start'] as Timestamp).toDate(),
+                        end: (doc.data()['end'] as Timestamp).toDate(),
+                        room: (doc.data()['room'] ?? '').toString(),
+                        onDelete: () => _delete(doc.id),
                       ),
-                      const SizedBox(height: 10),
                     ],
                   ],
                 ],
@@ -515,130 +942,51 @@ class _ScheduleTabState extends State<ScheduleTab> {
   }
 }
 
-class _WeeklyTile extends StatelessWidget {
-  final Color color;
-  final String title;
-  final String room;
-  final int startMin;
-  final int endMin;
-  final String Function(int) fmtMin;
-  final VoidCallback onEdit;
-  final VoidCallback onDelete;
+class _InfoCard extends StatelessWidget {
+  final String text;
+  final String buttonText;
+  final VoidCallback onTap;
 
-  const _WeeklyTile({
-    required this.color,
-    required this.title,
-    required this.room,
-    required this.startMin,
-    required this.endMin,
-    required this.fmtMin,
-    required this.onEdit,
-    required this.onDelete,
+  const _InfoCard({
+    required this.text,
+    required this.buttonText,
+    required this.onTap,
   });
+
+  static const Color _btnSoft = Color(0xFFC27C86);
+  static const Color _cardColor = Color(0xFFE4B8AC);
 
   @override
   Widget build(BuildContext context) {
-    final roomText = room.trim().isEmpty ? "" : " • Room: $room";
-
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: color,
+        color: _cardColor,
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: AppTheme.dark, width: 2),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
-                const SizedBox(height: 6),
-                Text("${fmtMin(startMin)} → ${fmtMin(endMin)}$roomText",
-                    style: const TextStyle(fontWeight: FontWeight.w800)),
-              ],
+          Text(text, style: const TextStyle(fontWeight: FontWeight.w800)),
+          const SizedBox(height: 10),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: GestureDetector(
+              onTap: onTap,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+                decoration: BoxDecoration(
+                  color: _btnSoft,
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                child: Text(
+                  buttonText,
+                  style: const TextStyle(fontWeight: FontWeight.w900, color: Colors.white),
+                ),
+              ),
             ),
           ),
-          IconButton(onPressed: onEdit, icon: const Icon(Icons.edit)),
-          IconButton(onPressed: onDelete, icon: const Icon(Icons.delete)),
-        ],
-      ),
-    );
-  }
-}
-
-class _DatedTile extends StatelessWidget {
-  final Color color;
-  final String title;
-  final String room;
-  final DateTime start;
-  final DateTime end;
-  final String Function(DateTime) fmtDue;
-  final bool overdue;
-  final bool done;
-  final VoidCallback onToggleDone;
-  final VoidCallback onEdit;
-  final VoidCallback onDelete;
-
-  const _DatedTile({
-    required this.color,
-    required this.title,
-    required this.room,
-    required this.start,
-    required this.end,
-    required this.fmtDue,
-    required this.overdue,
-    required this.done,
-    required this.onToggleDone,
-    required this.onEdit,
-    required this.onDelete,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final roomText = room.trim().isEmpty ? "" : " • Room: $room";
-    final timeText = "${fmtDue(start)} → ${fmtDue(end)}$roomText";
-
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppTheme.dark, width: 2),
-      ),
-      child: Row(
-        children: [
-          GestureDetector(
-            onTap: onToggleDone,
-            child: Icon(done ? Icons.check_circle : Icons.radio_button_unchecked),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: TextStyle(
-                    fontWeight: FontWeight.w900,
-                    fontSize: 16,
-                    decoration: done ? TextDecoration.lineThrough : null,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  timeText,
-                  style: TextStyle(
-                    fontWeight: FontWeight.w800,
-                    color: (!done && overdue) ? Colors.red : null,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          IconButton(onPressed: onEdit, icon: const Icon(Icons.edit)),
-          IconButton(onPressed: onDelete, icon: const Icon(Icons.delete)),
         ],
       ),
     );
