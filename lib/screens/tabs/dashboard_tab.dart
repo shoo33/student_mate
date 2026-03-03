@@ -25,8 +25,9 @@ class _DashboardTabState extends State<DashboardTab> {
   CollectionReference<Map<String, dynamic>> get _tasksRef =>
       FirebaseFirestore.instance.collection('users').doc(_uid).collection('tasks');
 
+  // ✅ لازم schedules (جمع) عشان يطابق ScheduleTab
   CollectionReference<Map<String, dynamic>> get _scheduleRef =>
-      FirebaseFirestore.instance.collection('users').doc(_uid).collection('schedule');
+      FirebaseFirestore.instance.collection('users').doc(_uid).collection('schedules');
 
   static const _quotes = [
     "SMALL STEPS, BIG\nPROGRESS",
@@ -46,14 +47,14 @@ class _DashboardTabState extends State<DashboardTab> {
   }
 
   String _weekdayName(int w) {
-    const names = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+    const names = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
     return names[w - 1];
   }
 
   String _monthName(int m) {
     const names = [
-      'January','February','March','April','May','June',
-      'July','August','September','October','November','December'
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'
     ];
     return names[m - 1];
   }
@@ -68,6 +69,26 @@ class _DashboardTabState extends State<DashboardTab> {
       h = h % 12;
       if (h == 0) h = 12;
       return '$h:$m$ampm';
+    } catch (_) {
+      return '--';
+    }
+  }
+
+  String _fmtDue(dynamic ts) {
+    if (ts == null) return '--';
+    try {
+      final d = (ts as Timestamp).toDate();
+      final months = const ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      final day = d.day.toString().padLeft(2, '0');
+      final mon = months[d.month - 1];
+
+      int h = d.hour;
+      final m = d.minute.toString().padLeft(2, '0');
+      final ampm = h >= 12 ? 'pm' : 'am';
+      h = h % 12;
+      if (h == 0) h = 12;
+
+      return "$day $mon • $h:$m$ampm";
     } catch (_) {
       return '--';
     }
@@ -93,8 +114,6 @@ class _DashboardTabState extends State<DashboardTab> {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
           children: [
-            // ✅ شلنا الثلاث نقاط بالكامل
-
             // Date
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -149,7 +168,7 @@ class _DashboardTabState extends State<DashboardTab> {
 
             const SizedBox(height: 12),
 
-            // Schedule (2)
+            // Schedule preview (2)
             StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
               stream: _scheduleRef.orderBy('start').limit(2).snapshots(),
               builder: (context, snapshot) {
@@ -172,8 +191,10 @@ class _DashboardTabState extends State<DashboardTab> {
                         borderRadius: BorderRadius.circular(18),
                         border: Border.all(color: AppTheme.dark, width: 2),
                       ),
-                      child: const Text("No schedule yet (tap to add)",
-                          style: TextStyle(fontWeight: FontWeight.w700)),
+                      child: const Text(
+                        "No schedule yet (tap to add)",
+                        style: TextStyle(fontWeight: FontWeight.w700),
+                      ),
                     ),
                   );
                 }
@@ -198,8 +219,7 @@ class _DashboardTabState extends State<DashboardTab> {
                       children: [
                         for (int i = 0; i < docs.length; i++) ...[
                           _TimePill(
-                            text:
-                                '${_fmtTime(docs[i].data()['start'])}\n${_fmtTime(docs[i].data()['end'])}',
+                            text: '${_fmtTime(docs[i].data()['start'])}\n${_fmtTime(docs[i].data()['end'])}',
                           ),
                           if (i != docs.length - 1) const SizedBox(height: 10),
                         ]
@@ -212,7 +232,7 @@ class _DashboardTabState extends State<DashboardTab> {
 
             const SizedBox(height: 14),
 
-            // Tasks box (only)
+            // ✅ One clean card: Next deadline + Quick task + beige button
             Container(
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
@@ -224,12 +244,13 @@ class _DashboardTabState extends State<DashboardTab> {
                 stream: _tasksRef
                     .where('done', isEqualTo: false)
                     .orderBy('createdAt', descending: true)
+                    .limit(30)
                     .snapshots(),
                 builder: (context, snapshot) {
                   if (snapshot.connectionState == ConnectionState.waiting) {
                     return const Center(
                       child: Padding(
-                        padding: EdgeInsets.all(8.0),
+                        padding: EdgeInsets.all(6.0),
                         child: CircularProgressIndicator(strokeWidth: 2),
                       ),
                     );
@@ -241,40 +262,111 @@ class _DashboardTabState extends State<DashboardTab> {
 
                   final docs = snapshot.data?.docs ?? [];
 
-                  if (docs.isEmpty) {
-                    return Column(
+                  // Header row with beige button
+                  Widget headerRow() {
+                    return Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Text("No tasks yet",
-                            style: TextStyle(fontWeight: FontWeight.w700)),
-                        const SizedBox(height: 10),
-                        ElevatedButton(
-                          onPressed: widget.goToTasks,
-                          child: const Text("Go to Tasks"),
+                        const Text(
+                          "Tasks",
+                          style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
+                        ),
+                        GestureDetector(
+                          onTap: widget.goToTasks,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF2B8A8),
+                              borderRadius: BorderRadius.circular(18),
+                            ),
+                            child: const Text(
+                              "Go to Tasks",
+                              style: TextStyle(fontWeight: FontWeight.w900),
+                            ),
+                          ),
                         ),
                       ],
                     );
                   }
 
-                  final topDocs = docs.take(2).toList();
+                  if (docs.isEmpty) {
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        headerRow(),
+                        const SizedBox(height: 10),
+                        const Text(
+                          "No tasks yet",
+                          style: TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                      ],
+                    );
+                  }
+
+                  // Quick task = newest
+                  final quick = docs.first;
+                  final quickTitle = (quick.data()['title'] ?? '').toString();
+
+                  // Next deadline = nearest dueAt
+                  final withDue = docs.where((d) => d.data()['dueAt'] is Timestamp).toList();
+                  withDue.sort((a, b) {
+                    final aDue = a.data()['dueAt'] as Timestamp;
+                    final bDue = b.data()['dueAt'] as Timestamp;
+                    return aDue.toDate().compareTo(bDue.toDate());
+                  });
+
+                  final hasDeadline = withDue.isNotEmpty;
+                  final deadlineTitle = hasDeadline ? (withDue.first.data()['title'] ?? '').toString() : null;
+                  final deadlineDue = hasDeadline ? (withDue.first.data()['dueAt'] as Timestamp) : null;
 
                   return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      for (final d in topDocs)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 10),
-                          child: _DashTaskRow(
-                            text: (d.data()['title'] ?? '').toString(),
-                            onDone: () => _markDone(d.id),
+                      headerRow(),
+                      const SizedBox(height: 12),
+
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const SizedBox(
+                            width: 115,
+                            child: Text(
+                              "Next deadline",
+                              style: TextStyle(fontWeight: FontWeight.w900),
+                            ),
                           ),
-                        ),
-                      if (docs.length > 2)
-                        Align(
-                          alignment: Alignment.centerLeft,
-                          child: TextButton(
-                            onPressed: widget.goToTasks,
-                            child: const Text("View all"),
+                          Expanded(
+                            child: Text(
+                              hasDeadline
+                                  ? "$deadlineTitle  •  ${_fmtDue(deadlineDue)}"
+                                  : "none",
+                              style: const TextStyle(fontWeight: FontWeight.w700),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
-                        ),
+                        ],
+                      ),
+
+                      const SizedBox(height: 10),
+
+                      Row(
+                        children: [
+                          const SizedBox(
+                            width: 115,
+                            child: Text(
+                              "Quick task",
+                              style: TextStyle(fontWeight: FontWeight.w900),
+                            ),
+                          ),
+                          Expanded(
+                            child: _DashTaskRow(
+                              text: quickTitle,
+                              onDone: () => _markDone(quick.id),
+                            ),
+                          ),
+                        ],
+                      ),
                     ],
                   );
                 },
