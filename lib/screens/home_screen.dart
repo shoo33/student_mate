@@ -27,7 +27,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
 
-    // ✅ تاباتك (نهائية)
+    //  تابات (نهائية)
     final tabs = <Widget>[
       DashboardTab(goToSchedule: _goToSchedule, goToTasks: _goToTasks),
       const TasksTab(),

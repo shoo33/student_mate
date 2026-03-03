@@ -1,7 +1,6 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../../theme/app_theme.dart';
 
@@ -20,14 +19,8 @@ class DashboardTab extends StatefulWidget {
 }
 
 class _DashboardTabState extends State<DashboardTab> {
-  String get _uid => FirebaseAuth.instance.currentUser!.uid;
-
-  CollectionReference<Map<String, dynamic>> get _tasksRef =>
-      FirebaseFirestore.instance.collection('users').doc(_uid).collection('tasks');
-
-  // ✅ لازم schedules (جمع) عشان يطابق ScheduleTab
-  CollectionReference<Map<String, dynamic>> get _scheduleRef =>
-      FirebaseFirestore.instance.collection('users').doc(_uid).collection('schedules');
+  static const Color _cardColor = Color(0xFFE4B8AC);
+  static const Color _btnSoft = Color(0xFFC27C86);
 
   static const _quotes = [
     "SMALL STEPS, BIG\nPROGRESS",
@@ -47,60 +40,27 @@ class _DashboardTabState extends State<DashboardTab> {
   }
 
   String _weekdayName(int w) {
-    const names = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+    const names = [
+      'Monday','Tuesday','Wednesday',
+      'Thursday','Friday','Saturday','Sunday'
+    ];
     return names[w - 1];
   }
 
   String _monthName(int m) {
     const names = [
-      'January', 'February', 'March', 'April', 'May', 'June',
-      'July', 'August', 'September', 'October', 'November', 'December'
+      'January','February','March','April','May','June',
+      'July','August','September','October','November','December'
     ];
     return names[m - 1];
-  }
-
-  String _fmtTime(dynamic ts) {
-    if (ts == null) return '--';
-    try {
-      final d = (ts as Timestamp).toDate();
-      int h = d.hour;
-      final m = d.minute.toString().padLeft(2, '0');
-      final ampm = h >= 12 ? 'pm' : 'am';
-      h = h % 12;
-      if (h == 0) h = 12;
-      return '$h:$m$ampm';
-    } catch (_) {
-      return '--';
-    }
-  }
-
-  String _fmtDue(dynamic ts) {
-    if (ts == null) return '--';
-    try {
-      final d = (ts as Timestamp).toDate();
-      final months = const ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-      final day = d.day.toString().padLeft(2, '0');
-      final mon = months[d.month - 1];
-
-      int h = d.hour;
-      final m = d.minute.toString().padLeft(2, '0');
-      final ampm = h >= 12 ? 'pm' : 'am';
-      h = h % 12;
-      if (h == 0) h = 12;
-
-      return "$day $mon • $h:$m$ampm";
-    } catch (_) {
-      return '--';
-    }
-  }
-
-  Future<void> _markDone(String docId) async {
-    await _tasksRef.doc(docId).update({'done': true});
   }
 
   @override
   Widget build(BuildContext context) {
     final now = DateTime.now();
+    final user = FirebaseAuth.instance.currentUser;
+    final displayName =
+        (user?.email ?? "Student").split('@').first;
 
     return Container(
       decoration: const BoxDecoration(
@@ -114,19 +74,36 @@ class _DashboardTabState extends State<DashboardTab> {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
           children: [
-            // Date
+
+            // ✅ Welcome + Date Card
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 14, vertical: 12),
               decoration: BoxDecoration(
-                color: const Color(0xFFF2B8A8),
+                color: _btnSoft,
                 borderRadius: BorderRadius.circular(18),
               ),
               child: Row(
                 children: [
                   Expanded(
-                    child: Text(
-                      "${_weekdayName(now.weekday)}, ${_monthName(now.month)}",
-                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+                    child: Column(
+                      crossAxisAlignment:
+                          CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          "Welcome, $displayName",
+                          style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w900),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          "${_weekdayName(now.weekday)}, ${_monthName(now.month)}",
+                          style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700),
+                        ),
+                      ],
                     ),
                   ),
                   Container(
@@ -139,18 +116,20 @@ class _DashboardTabState extends State<DashboardTab> {
                     ),
                     child: Text(
                       "${now.day}",
-                      style: const TextStyle(fontWeight: FontWeight.w800),
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w900),
                     ),
                   ),
                 ],
               ),
             ),
 
-            const SizedBox(height: 12),
+            const SizedBox(height: 16),
 
-            // Quote
+            // Quote Card
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 16, vertical: 18),
               decoration: BoxDecoration(
                 color: const Color(0xFF9B858C),
                 borderRadius: BorderRadius.circular(18),
@@ -166,294 +145,101 @@ class _DashboardTabState extends State<DashboardTab> {
               ),
             ),
 
-            const SizedBox(height: 12),
+            const SizedBox(height: 16),
 
-            // Schedule preview (2)
-            StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: _scheduleRef.orderBy('start').limit(2).snapshots(),
-              builder: (context, snapshot) {
-                final docs = snapshot.data?.docs ?? [];
-
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Padding(
-                    padding: EdgeInsets.only(bottom: 12),
-                    child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
-                  );
-                }
-
-                if (docs.isEmpty) {
-                  return GestureDetector(
-                    onTap: widget.goToSchedule,
-                    child: Container(
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        color: AppTheme.card,
-                        borderRadius: BorderRadius.circular(18),
-                        border: Border.all(color: AppTheme.dark, width: 2),
-                      ),
-                      child: const Text(
-                        "No schedule yet (tap to add)",
-                        style: TextStyle(fontWeight: FontWeight.w700),
-                      ),
-                    ),
-                  );
-                }
-
-                return Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        children: [
-                          for (int i = 0; i < docs.length; i++) ...[
-                            GestureDetector(
-                              onTap: widget.goToSchedule,
-                              child: _Pill(text: (docs[i].data()['title'] ?? '').toString()),
-                            ),
-                            if (i != docs.length - 1) const SizedBox(height: 10),
-                          ]
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Column(
-                      children: [
-                        for (int i = 0; i < docs.length; i++) ...[
-                          _TimePill(
-                            text: '${_fmtTime(docs[i].data()['start'])}\n${_fmtTime(docs[i].data()['end'])}',
-                          ),
-                          if (i != docs.length - 1) const SizedBox(height: 10),
-                        ]
-                      ],
-                    ),
-                  ],
-                );
-              },
+            // Schedule Card
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: _cardColor,
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(
+                    color: AppTheme.dark, width: 2),
+              ),
+              child: Column(
+                crossAxisAlignment:
+                    CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    "Schedule",
+                    style: TextStyle(
+                        fontWeight: FontWeight.w900,
+                        fontSize: 16),
+                  ),
+                  const SizedBox(height: 10),
+                  const Text(
+                    "No schedule yet.",
+                    style: TextStyle(
+                        fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 10),
+                  _softButton(
+                      "Add", widget.goToSchedule),
+                ],
+              ),
             ),
 
             const SizedBox(height: 14),
 
-            // ✅ One clean card: Next deadline + Quick task + beige button
+            // Tasks Card
             Container(
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
-                color: AppTheme.card,
+                color: _cardColor,
                 borderRadius: BorderRadius.circular(18),
-                border: Border.all(color: AppTheme.dark, width: 2),
+                border: Border.all(
+                    color: AppTheme.dark, width: 2),
               ),
-              child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                stream: _tasksRef
-                    .where('done', isEqualTo: false)
-                    .orderBy('createdAt', descending: true)
-                    .limit(30)
-                    .snapshots(),
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const Center(
-                      child: Padding(
-                        padding: EdgeInsets.all(6.0),
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                    );
-                  }
-
-                  if (snapshot.hasError) {
-                    return Text("Error: ${snapshot.error}");
-                  }
-
-                  final docs = snapshot.data?.docs ?? [];
-
-                  // Header row with beige button
-                  Widget headerRow() {
-                    return Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text(
-                          "Tasks",
-                          style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
-                        ),
-                        GestureDetector(
-                          onTap: widget.goToTasks,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFF2B8A8),
-                              borderRadius: BorderRadius.circular(18),
-                            ),
-                            child: const Text(
-                              "Go to Tasks",
-                              style: TextStyle(fontWeight: FontWeight.w900),
-                            ),
-                          ),
-                        ),
-                      ],
-                    );
-                  }
-
-                  if (docs.isEmpty) {
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        headerRow(),
-                        const SizedBox(height: 10),
-                        const Text(
-                          "No tasks yet",
-                          style: TextStyle(fontWeight: FontWeight.w700),
-                        ),
-                      ],
-                    );
-                  }
-
-                  // Quick task = newest
-                  final quick = docs.first;
-                  final quickTitle = (quick.data()['title'] ?? '').toString();
-
-                  // Next deadline = nearest dueAt
-                  final withDue = docs.where((d) => d.data()['dueAt'] is Timestamp).toList();
-                  withDue.sort((a, b) {
-                    final aDue = a.data()['dueAt'] as Timestamp;
-                    final bDue = b.data()['dueAt'] as Timestamp;
-                    return aDue.toDate().compareTo(bDue.toDate());
-                  });
-
-                  final hasDeadline = withDue.isNotEmpty;
-                  final deadlineTitle = hasDeadline ? (withDue.first.data()['title'] ?? '').toString() : null;
-                  final deadlineDue = hasDeadline ? (withDue.first.data()['dueAt'] as Timestamp) : null;
-
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      headerRow(),
-                      const SizedBox(height: 12),
-
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const SizedBox(
-                            width: 115,
-                            child: Text(
-                              "Next deadline",
-                              style: TextStyle(fontWeight: FontWeight.w900),
-                            ),
-                          ),
-                          Expanded(
-                            child: Text(
-                              hasDeadline
-                                  ? "$deadlineTitle  •  ${_fmtDue(deadlineDue)}"
-                                  : "none",
-                              style: const TextStyle(fontWeight: FontWeight.w700),
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ],
-                      ),
-
-                      const SizedBox(height: 10),
-
-                      Row(
-                        children: [
-                          const SizedBox(
-                            width: 115,
-                            child: Text(
-                              "Quick task",
-                              style: TextStyle(fontWeight: FontWeight.w900),
-                            ),
-                          ),
-                          Expanded(
-                            child: _DashTaskRow(
-                              text: quickTitle,
-                              onDone: () => _markDone(quick.id),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  );
-                },
+              child: Column(
+                crossAxisAlignment:
+                    CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    "Tasks",
+                    style: TextStyle(
+                        fontWeight: FontWeight.w900,
+                        fontSize: 16),
+                  ),
+                  const SizedBox(height: 10),
+                  const Text(
+                    "No tasks yet.",
+                    style: TextStyle(
+                        fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 10),
+                  _softButton(
+                      "Add", widget.goToTasks),
+                ],
               ),
             ),
+
+            const SizedBox(height: 20),
           ],
         ),
       ),
     );
   }
-}
 
-class _Pill extends StatelessWidget {
-  final String text;
-  const _Pill({required this.text});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 38,
-      alignment: Alignment.centerLeft,
-      padding: const EdgeInsets.symmetric(horizontal: 14),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF2B8A8),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Text(text, style: const TextStyle(fontWeight: FontWeight.w700)),
-    );
-  }
-}
-
-class _TimePill extends StatelessWidget {
-  final String text;
-  const _TimePill({required this.text});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 82,
-      height: 38,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: const Color(0xFFE8A79A),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Text(
-        text,
-        textAlign: TextAlign.center,
-        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800),
-      ),
-    );
-  }
-}
-
-class _DashTaskRow extends StatelessWidget {
-  final String text;
-  final VoidCallback onDone;
-
-  const _DashTaskRow({
-    required this.text,
-    required this.onDone,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        GestureDetector(
-          onTap: onDone,
-          child: Container(
-            width: 18,
-            height: 18,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(color: AppTheme.dark, width: 2),
-            ),
+  Widget _softButton(
+      String text, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(
+            horizontal: 16, vertical: 9),
+        decoration: BoxDecoration(
+          color: _btnSoft,
+          borderRadius:
+              BorderRadius.circular(18),
+        ),
+        child: Text(
+          text,
+          style: const TextStyle(
+            fontWeight: FontWeight.w900,
+            color: Colors.white,
           ),
         ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Text(
-            text,
-            style: const TextStyle(fontWeight: FontWeight.w700),
-            overflow: TextOverflow.ellipsis,
-          ),
-        ),
-      ],
+      ),
     );
   }
 }
