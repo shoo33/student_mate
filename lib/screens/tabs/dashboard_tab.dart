@@ -22,16 +22,18 @@ class DashboardTab extends StatefulWidget {
 class _DashboardTabState extends State<DashboardTab> {
   String get _uid => FirebaseAuth.instance.currentUser!.uid;
 
+  DocumentReference<Map<String, dynamic>> get _userDoc =>
+      FirebaseFirestore.instance.collection('users').doc(_uid);
+
   CollectionReference<Map<String, dynamic>> get _tasksRef =>
       FirebaseFirestore.instance.collection('users').doc(_uid).collection('tasks');
 
   CollectionReference<Map<String, dynamic>> get _scheduleRef =>
       FirebaseFirestore.instance.collection('users').doc(_uid).collection('schedules');
 
-  // Colors (أغمق شوي ومريح)
   static const Color _cardColor = Color(0xFFE4B8AC);
   static const Color _btnSoft = Color(0xFFC27C86);
-  static const Color _dateChip = Color(0xFFE8A79A);
+  static const Color _tableHeader = Color(0xFFD9A99C);
 
   static const _quotes = [
     "SMALL STEPS, BIG\nPROGRESS",
@@ -63,17 +65,9 @@ class _DashboardTabState extends State<DashboardTab> {
     return names[m - 1];
   }
 
-  String _dayName(int d) {
-    switch (d) {
-      case DateTime.sunday: return 'Sunday';
-      case DateTime.monday: return 'Monday';
-      case DateTime.tuesday: return 'Tuesday';
-      case DateTime.wednesday: return 'Wednesday';
-      case DateTime.thursday: return 'Thursday';
-      case DateTime.friday: return 'Friday';
-      case DateTime.saturday: return 'Saturday';
-      default: return '';
-    }
+  String _dayShort(int weekday) {
+    const names = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+    return names[(weekday - 1).clamp(0, 6)];
   }
 
   String _fmtMin(int mins) {
@@ -85,8 +79,8 @@ class _DashboardTabState extends State<DashboardTab> {
     return '$h:$m$ampm';
   }
 
-  String _fmtDue(DateTime d) {
-    final months = const ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  String _fmtDT(DateTime d) {
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
     final day = d.day.toString().padLeft(2, '0');
     final mon = months[d.month - 1];
 
@@ -99,39 +93,45 @@ class _DashboardTabState extends State<DashboardTab> {
     return "$day $mon • $h:$m$ampm";
   }
 
-  Future<void> _toggleTaskDone(String id, bool v) async {
-    await _tasksRef.doc(id).update({'done': v});
-  }
-
-  Future<void> _toggleDatedScheduleDone(String id, bool v) async {
-    await _scheduleRef.doc(id).update({'done': v});
-  }
-
-  Widget _softButton(String text, VoidCallback onTap) {
-    return Align(
-      alignment: Alignment.centerLeft,
-      child: GestureDetector(
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-          decoration: BoxDecoration(
-            color: _btnSoft,
-            borderRadius: BorderRadius.circular(18),
-          ),
-          child: Text(
-            text,
-            style: const TextStyle(fontWeight: FontWeight.w900, color: Colors.white),
-          ),
+  Widget _pillButton(String text, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: _btnSoft,
+          borderRadius: BorderRadius.circular(18),
+        ),
+        child: Text(
+          text,
+          style: const TextStyle(fontWeight: FontWeight.w900, color: Colors.white),
         ),
       ),
+    );
+  }
+
+  Future<void> _setTaskDone(String id, bool v) async {
+    await _tasksRef.doc(id).update({
+      'done': v,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Widget _cardShell({required Widget child}) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: _cardColor,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppTheme.dark, width: 2),
+      ),
+      child: child,
     );
   }
 
   @override
   Widget build(BuildContext context) {
     final now = DateTime.now();
-    final user = FirebaseAuth.instance.currentUser;
-    final name = (user?.email ?? "student").split('@').first;
 
     return Container(
       decoration: const BoxDecoration(
@@ -143,56 +143,71 @@ class _DashboardTabState extends State<DashboardTab> {
       ),
       child: SafeArea(
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 90),
           children: [
-            // Welcome + Date
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              decoration: BoxDecoration(
-                color: _btnSoft,
-                borderRadius: BorderRadius.circular(18),
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          "Welcome, $name",
-                          style: const TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w900,
-                            color: Colors.white,
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          "${_weekdayName(now.weekday)}, ${_monthName(now.month)}",
-                          style: const TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ],
-                    ),
+            // ===== Header: Date + Welcome =====
+            StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+              stream: _userDoc.snapshots(),
+              builder: (context, snap) {
+                final data = snap.data?.data();
+                final name = (data?['name'] ?? '').toString().trim();
+
+                return Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFB97E87),
+                    borderRadius: BorderRadius.circular(18),
                   ),
-                  Container(
-                    width: 34,
-                    height: 34,
-                    alignment: Alignment.center,
-                    decoration: const BoxDecoration(color: _dateChip, shape: BoxShape.circle),
-                    child: Text("${now.day}", style: const TextStyle(fontWeight: FontWeight.w900)),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              "${_weekdayName(now.weekday)}, ${_monthName(now.month)}",
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w900,
+                                color: Colors.black,
+                              ),
+                            ),
+                            if (name.isNotEmpty) ...[
+                              const SizedBox(height: 4),
+                              Text(
+                                "Welcome, $name",
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w900,
+                                  color: Colors.black,
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                      Container(
+                        width: 34,
+                        height: 34,
+                        alignment: Alignment.center,
+                        decoration: const BoxDecoration(
+                          color: Color(0xFFE8A79A),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Text(
+                          "${now.day}",
+                          style: const TextStyle(fontWeight: FontWeight.w900),
+                        ),
+                      ),
+                    ],
                   ),
-                ],
-              ),
+                );
+              },
             ),
 
             const SizedBox(height: 12),
 
-            // Quote
+            // ===== Quote =====
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
               decoration: BoxDecoration(
@@ -212,217 +227,275 @@ class _DashboardTabState extends State<DashboardTab> {
 
             const SizedBox(height: 12),
 
-            // Schedule Card
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: _cardColor,
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(color: AppTheme.dark, width: 2),
+            // ===== Weekly classes (TABLE) =====
+            // ===== Weekly classes (REAL WEEK TABLE) =====
+StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+  stream: _scheduleRef.where('type', isEqualTo: 'weekly').snapshots(),
+  builder: (context, snapshot) {
+    final docs = snapshot.data?.docs ?? [];
+
+    // group by day
+    final Map<int, List<Map<String, dynamic>>> grouped = {};
+    for (final d in docs) {
+      final data = d.data();
+      final day = data['dayOfWeek'];
+      if (day is! int) continue;
+      grouped.putIfAbsent(day, () => []);
+      grouped[day]!.add({
+        'title': (data['title'] ?? '').toString(),
+        'room': (data['room'] ?? '').toString(),
+        'startMin': (data['startMin'] ?? 0) as int,
+        'endMin': (data['endMin'] ?? 0) as int,
+      });
+    }
+
+    // sort inside each day
+    for (final k in grouped.keys) {
+      grouped[k]!.sort((a, b) => (a['startMin'] as int).compareTo(b['startMin'] as int));
+    }
+
+    Widget classChip(Map<String, dynamic> c) {
+      final time = "${_fmtMin(c['startMin'] as int)}-${_fmtMin(c['endMin'] as int)}";
+      final title = (c['title'] as String).trim();
+      final room = (c['room'] as String).trim();
+
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF2B8A8),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(title, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12)),
+            const SizedBox(height: 2),
+            Text(time, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 11)),
+            if (room.isNotEmpty) ...[
+              const SizedBox(height: 2),
+              Text("Room: $room", style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 11)),
+            ],
+          ],
+        ),
+      );
+    }
+
+    return _cardShell(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  "Weekly classes",
+                  style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
+                ),
               ),
-              child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                stream: _scheduleRef.snapshots(),
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const Center(child: CircularProgressIndicator(strokeWidth: 2));
-                  }
-                  if (snapshot.hasError) return Text("Error: ${snapshot.error}");
+              _pillButton(docs.isEmpty ? "Add" : "Open", widget.goToSchedule),
+            ],
+          ),
+          const SizedBox(height: 10),
 
-                  final docs = snapshot.data?.docs ?? [];
+          if (docs.isEmpty)
+            const Text("No weekly classes yet.", style: TextStyle(fontWeight: FontWeight.w800))
+          else
+            Column(
+              children: [
+                // header row
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: _tableHeader,
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: const Row(
+                    children: [
+                      SizedBox(
+                        width: 50,
+                        child: Text("Day", style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12)),
+                      ),
+                      Expanded(
+                        child: Text("Classes", style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12)),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 8),
 
-                  final weekly = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
-                  final upcomingDated = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+                // rows Mon..Sun
+                for (final day in [1, 2, 3, 4, 5, 6, 7]) ...[
+                  if ((grouped[day] ?? []).isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          SizedBox(
+                            width: 50,
+                            child: Padding(
+                              padding: const EdgeInsets.only(top: 8),
+                              child: Text(
+                                _dayShort(day),
+                                style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12),
+                              ),
+                            ),
+                          ),
+                          Expanded(
+                            child: Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                for (final c in grouped[day]!) classChip(c),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              ],
+            ),
+        ],
+      ),
+    );
+  },
+),
 
-                  for (final d in docs) {
-                    final data = d.data();
-                    final type = (data['type'] ?? 'weekly').toString();
+            const SizedBox(height: 12),
 
-                    if (type == 'dated') {
-                      final done = (data['done'] ?? false) == true;
-                      if (done) continue;
-                      if (data['start'] is! Timestamp || data['end'] is! Timestamp) continue;
+            // ===== Exams / Events (dated) top 3 upcoming =====
+            StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: _scheduleRef.where('type', isEqualTo: 'dated').snapshots(),
+              builder: (context, snapshot) {
+                final all = snapshot.data?.docs ?? [];
+                final now = DateTime.now();
 
-                      final start = (data['start'] as Timestamp).toDate();
-                      if (start.isBefore(DateTime.now())) continue; // expired لا يطلع بالهوم
-
-                      upcomingDated.add(d);
-                    } else {
-                      if (data['dayOfWeek'] is int && data['startMin'] is int && data['endMin'] is int) {
-                        weekly.add(d);
-                      }
-                    }
-                  }
-
-                  // Sort
-                  upcomingDated.sort((a, b) {
+                final upcoming = all.where((d) {
+                  final data = d.data();
+                  if ((data['done'] ?? false) == true) return false;
+                  if (data['start'] is! Timestamp) return false;
+                  return (data['start'] as Timestamp).toDate().isAfter(now);
+                }).toList()
+                  ..sort((a, b) {
                     final aS = (a.data()['start'] as Timestamp).toDate();
                     final bS = (b.data()['start'] as Timestamp).toDate();
                     return aS.compareTo(bS);
                   });
 
-                  weekly.sort((a, b) {
-                    final ad = (a.data()['dayOfWeek'] ?? 0) as int;
-                    final bd = (b.data()['dayOfWeek'] ?? 0) as int;
-                    if (ad != bd) return ad.compareTo(bd);
-                    final as = (a.data()['startMin'] ?? 0) as int;
-                    final bs = (b.data()['startMin'] ?? 0) as int;
-                    return as.compareTo(bs);
-                  });
+                final top3 = upcoming.take(3).toList();
 
-                  final topDated = upcomingDated.take(3).toList();
-                  final hasMoreDated = upcomingDated.length > 3;
-                  final hasAny = weekly.isNotEmpty || upcomingDated.isNotEmpty;
-
-                  return Column(
+                return _cardShell(
+                  child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text("Schedule", style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
-                      const SizedBox(height: 10),
-
-                      if (!hasAny) ...[
-                        const Text("No schedule yet.", style: TextStyle(fontWeight: FontWeight.w800)),
-                        const SizedBox(height: 10),
-                        _softButton("Add", widget.goToSchedule),
-                      ] else ...[
-                        if (topDated.isNotEmpty) ...[
-                          const Text("Upcoming", style: TextStyle(fontWeight: FontWeight.w900)),
-                          const SizedBox(height: 8),
-                          for (final d in topDated) ...[
-                            _MiniRow(
-                              leading: GestureDetector(
-                                onTap: () => _toggleDatedScheduleDone(d.id, true),
-                                child: const Icon(Icons.radio_button_unchecked),
-                              ),
-                              title: (d.data()['title'] ?? '').toString(),
-                              subtitle: _fmtDue((d.data()['start'] as Timestamp).toDate()),
-                              room: (d.data()['room'] ?? '').toString(),
-                            ),
-                            const SizedBox(height: 8),
-                          ],
-                          if (hasMoreDated) ...[
-                            const SizedBox(height: 6),
-                            _softButton("More", widget.goToSchedule),
-                          ],
-                          const SizedBox(height: 10),
-                        ],
-
-                        if (weekly.isNotEmpty) ...[
-                          const Text("Weekly", style: TextStyle(fontWeight: FontWeight.w900)),
-                          const SizedBox(height: 8),
-                          for (final d in weekly) ...[
-                            _MiniRow(
-                              leading: const SizedBox(width: 24),
-                              title: (d.data()['title'] ?? '').toString(),
-                              subtitle:
-                                  "${_dayName((d.data()['dayOfWeek'] ?? DateTime.monday) as int)} • "
-                                  "${_fmtMin((d.data()['startMin'] ?? 0) as int)} → ${_fmtMin((d.data()['endMin'] ?? 0) as int)}",
-                              room: (d.data()['room'] ?? '').toString(),
-                            ),
-                            const SizedBox(height: 8),
-                          ],
-                        ],
-                      ],
-                    ],
-                  );
-                },
-              ),
-            ),
-
-            const SizedBox(height: 14),
-
-            // Tasks Card (✅ فيه Complete في الهوم)
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: _cardColor,
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(color: AppTheme.dark, width: 2),
-              ),
-              child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                stream: _tasksRef.orderBy('createdAt', descending: true).limit(160).snapshots(),
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const Center(child: CircularProgressIndicator(strokeWidth: 2));
-                  }
-                  if (snapshot.hasError) return Text("Error: ${snapshot.error}");
-
-                  final docs = snapshot.data?.docs ?? [];
-                  final now = DateTime.now();
-
-                  final upcoming = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
-                  final noDeadline = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
-
-                  for (final d in docs) {
-                    final data = d.data();
-                    final done = (data['done'] ?? false) == true;
-                    if (done) continue;
-
-                    final due = data['dueAt'];
-                    if (due is Timestamp) {
-                      final dueDate = due.toDate();
-                      if (dueDate.isBefore(now)) continue; // expired لا يطلع بالهوم
-                      upcoming.add(d);
-                    } else {
-                      noDeadline.add(d);
-                    }
-                  }
-
-                  upcoming.sort((a, b) {
-                    final aD = (a.data()['dueAt'] as Timestamp).toDate();
-                    final bD = (b.data()['dueAt'] as Timestamp).toDate();
-                    return aD.compareTo(bD);
-                  });
-
-                  noDeadline.sort((a, b) {
-                    final aC = a.data()['createdAt'];
-                    final bC = b.data()['createdAt'];
-                    final aDate = aC is Timestamp ? aC.toDate() : DateTime(2000);
-                    final bDate = bC is Timestamp ? bC.toDate() : DateTime(2000);
-                    return bDate.compareTo(aDate);
-                  });
-
-                  final merged = <QueryDocumentSnapshot<Map<String, dynamic>>>[
-                    ...upcoming,
-                    ...noDeadline,
-                  ];
-
-                  final top = merged.take(3).toList();
-                  final hasMore = merged.length > 3;
-
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text("Tasks", style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
-                      const SizedBox(height: 10),
-
-                      if (top.isEmpty) ...[
-                        const Text("No tasks yet.", style: TextStyle(fontWeight: FontWeight.w800)),
-                        const SizedBox(height: 10),
-                        _softButton("Add", widget.goToTasks),
-                      ] else ...[
-                        for (final d in top) ...[
-                          _MiniRow(
-                            leading: GestureDetector(
-                              onTap: () => _toggleTaskDone(d.id, true),
-                              child: const Icon(Icons.radio_button_unchecked),
-                            ),
-                            title: (d.data()['title'] ?? '').toString(),
-                            subtitle: (d.data()['dueAt'] is Timestamp)
-                                ? "Deadline: ${_fmtDue((d.data()['dueAt'] as Timestamp).toDate())}"
-                                : "No deadline",
-                            room: "",
+                      Row(
+                        children: [
+                          const Expanded(
+                            child: Text("Exams / Events",
+                                style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
                           ),
-                          const SizedBox(height: 10),
+                          _pillButton(upcoming.isEmpty ? "Add" : "More", widget.goToSchedule),
                         ],
-                        if (hasMore) _softButton("More", widget.goToTasks),
-                      ],
+                      ),
+                      const SizedBox(height: 10),
+
+                      if (upcoming.isEmpty)
+                        const Text("No upcoming events.",
+                            style: TextStyle(fontWeight: FontWeight.w800))
+                      else
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            for (final d in top3) ...[
+                              Text(
+                                (d.data()['title'] ?? '').toString(),
+                                style: const TextStyle(fontWeight: FontWeight.w900),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                "${_fmtDT((d.data()['start'] as Timestamp).toDate())}"
+                                "${((d.data()['room'] ?? '').toString().trim().isEmpty) ? "" : " • ${(d.data()['room'] ?? '').toString()}"}",
+                                style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12),
+                              ),
+                              const SizedBox(height: 8),
+                            ]
+                          ],
+                        ),
                     ],
-                  );
-                },
-              ),
+                  ),
+                );
+              },
             ),
 
-            const SizedBox(height: 18),
+            const SizedBox(height: 12),
+
+            // ===== Tasks top 3 (done=false) =====
+            StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: _tasksRef.where('done', isEqualTo: false).snapshots(),
+              builder: (context, snapshot) {
+                final docs = snapshot.data?.docs ?? [];
+                final now = DateTime.now();
+
+                // ترتيب محلي: اللي عنده dueAt أول + الأقرب
+                docs.sort((a, b) {
+                  final aDue = a.data()['dueAt'];
+                  final bDue = b.data()['dueAt'];
+                  final aHas = aDue is Timestamp;
+                  final bHas = bDue is Timestamp;
+
+                  if (aHas && bHas) {
+                    return (aDue).toDate().compareTo((bDue).toDate());
+                  }
+                  if (aHas && !bHas) return -1;
+                  if (!aHas && bHas) return 1;
+                  return 0;
+                });
+
+                final top = docs.take(3).toList();
+
+                return _cardShell(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Expanded(
+                            child: Text("Tasks",
+                                style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+                          ),
+                          _pillButton(docs.isEmpty ? "Add" : "More", widget.goToTasks),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+
+                      if (docs.isEmpty)
+                        const Text("No tasks yet.",
+                            style: TextStyle(fontWeight: FontWeight.w800))
+                      else
+                        Column(
+                          children: [
+                            for (final d in top) ...[
+                              _TaskRow(
+                                title: (d.data()['title'] ?? '').toString(),
+                                subtitle: (d.data()['dueAt'] is Timestamp)
+                                    ? "Deadline: ${_fmtDT((d.data()['dueAt'] as Timestamp).toDate())}"
+                                    : "",
+                                subtitleRed: (d.data()['dueAt'] is Timestamp)
+                                    ? ((d.data()['dueAt'] as Timestamp).toDate().isBefore(now))
+                                    : false,
+                                onDone: () => _setTaskDone(d.id, true),
+                              ),
+                              const SizedBox(height: 8),
+                            ],
+                          ],
+                        ),
+                    ],
+                  ),
+                );
+              },
+            ),
           ],
         ),
       ),
@@ -430,38 +503,44 @@ class _DashboardTabState extends State<DashboardTab> {
   }
 }
 
-class _MiniRow extends StatelessWidget {
-  final Widget leading;
+class _TaskRow extends StatelessWidget {
   final String title;
   final String subtitle;
-  final String room;
+  final bool subtitleRed;
+  final VoidCallback onDone;
 
-  const _MiniRow({
-    required this.leading,
+  const _TaskRow({
     required this.title,
     required this.subtitle,
-    required this.room,
+    required this.subtitleRed,
+    required this.onDone,
   });
 
   @override
   Widget build(BuildContext context) {
-    final roomText = room.trim().isEmpty ? "" : " • $room";
-
     return Row(
       children: [
-        leading,
+        GestureDetector(onTap: onDone, child: const Icon(Icons.radio_button_unchecked)),
         const SizedBox(width: 10),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(title, style: const TextStyle(fontWeight: FontWeight.w900), overflow: TextOverflow.ellipsis),
-              const SizedBox(height: 2),
-              Text(
-                "$subtitle$roomText",
-                style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12),
-                overflow: TextOverflow.ellipsis,
-              ),
+              Text(title,
+                  style: const TextStyle(fontWeight: FontWeight.w900),
+                  overflow: TextOverflow.ellipsis),
+              if (subtitle.trim().isNotEmpty) ...[
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 12,
+                    color: subtitleRed ? Colors.red : null,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
             ],
           ),
         ),

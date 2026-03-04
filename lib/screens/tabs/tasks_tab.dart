@@ -4,15 +4,33 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../../theme/app_theme.dart';
 
-class TasksTab extends StatelessWidget {
+class TasksTab extends StatefulWidget {
   const TasksTab({super.key});
 
+  @override
+  State<TasksTab> createState() => _TasksTabState();
+}
+
+class _TasksTabState extends State<TasksTab> {
   String get _uid => FirebaseAuth.instance.currentUser!.uid;
 
   CollectionReference<Map<String, dynamic>> get _tasksRef =>
       FirebaseFirestore.instance.collection('users').doc(_uid).collection('tasks');
 
-  static const Color _tileColor = Color(0xFFE4B8AC);
+  static const Color _cardColor = Color(0xFFE4B8AC);
+
+  // ---------- helpers ----------
+  String _fmtDT(DateTime d) {
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    final day = d.day.toString().padLeft(2, '0');
+    final mon = months[d.month - 1];
+    int h = d.hour;
+    final m = d.minute.toString().padLeft(2, '0');
+    final ampm = h >= 12 ? 'pm' : 'am';
+    h = h % 12;
+    if (h == 0) h = 12;
+    return "$day $mon • $h:$m$ampm";
+  }
 
   Future<DateTime?> _pickDateTime(BuildContext context, DateTime initial) async {
     final date = await showDatePicker(
@@ -32,84 +50,81 @@ class TasksTab extends StatelessWidget {
     return DateTime(date.year, date.month, date.day, time.hour, time.minute);
   }
 
-  String _fmtDue(DateTime d) {
-    final months = const ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-    final day = d.day.toString().padLeft(2, '0');
-    final mon = months[d.month - 1];
-
-    int h = d.hour;
-    final m = d.minute.toString().padLeft(2, '0');
-    final ampm = h >= 12 ? 'pm' : 'am';
-    h = h % 12;
-    if (h == 0) h = 12;
-
-    return "$day $mon • $h:$m$ampm";
+  // ---------- firestore actions ----------
+  Future<void> _setDone(String id, bool v) async {
+    await _tasksRef.doc(id).update({
+      'done': v,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
   }
 
+  Future<void> _delete(String id) async {
+    await _tasksRef.doc(id).delete();
+  }
+
+  // ---------- dialogs ----------
   Future<void> _addTask(BuildContext context) async {
     final titleCtrl = TextEditingController();
     bool hasDeadline = false;
-    DateTime deadline = DateTime.now().add(const Duration(days: 1));
+    DateTime due = DateTime.now();
 
     await showDialog(
       context: context,
       builder: (_) => StatefulBuilder(
         builder: (context, setLocal) => AlertDialog(
-          title: const Text("Add task"),
+          title: const Text("Add Task"),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               TextField(
                 controller: titleCtrl,
-                decoration: const InputDecoration(hintText: "Task title"),
+                decoration: const InputDecoration(
+                  labelText: "Title",
+                ),
               ),
               const SizedBox(height: 10),
+
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
-                title: const Text("Add deadline"),
+                title: const Text("Deadline"),
                 value: hasDeadline,
                 onChanged: (v) => setLocal(() => hasDeadline = v),
               ),
-              if (hasDeadline) ...[
+
+              if (hasDeadline)
                 Row(
                   children: [
                     Expanded(
                       child: Text(
-                        _fmtDue(deadline),
+                        _fmtDT(due),
                         style: const TextStyle(fontWeight: FontWeight.w800),
                       ),
                     ),
-                    IconButton(
-                      icon: const Icon(Icons.event),
+                    TextButton(
                       onPressed: () async {
-                        final picked = await _pickDateTime(context, deadline);
-                        if (picked != null) setLocal(() => deadline = picked);
+                        final picked = await _pickDateTime(context, due);
+                        if (picked != null) setLocal(() => due = picked);
                       },
+                      child: const Text("Choose"),
                     ),
                   ],
                 ),
-              ],
             ],
           ),
           actions: [
             TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
             ElevatedButton(
               onPressed: () async {
-                final title = titleCtrl.text.trim();
-                if (title.isEmpty) return;
+                final t = titleCtrl.text.trim();
+                if (t.isEmpty) return;
 
-                final payload = <String, dynamic>{
-                  'title': title,
+                await _tasksRef.add({
+                  'title': t,
                   'done': false,
+                  'dueAt': hasDeadline ? Timestamp.fromDate(due) : null,
                   'createdAt': FieldValue.serverTimestamp(),
-                  'updatedAt': FieldValue.serverTimestamp(),
-                };
+                });
 
-                if (hasDeadline) {
-                  payload['dueAt'] = Timestamp.fromDate(deadline);
-                }
-
-                await _tasksRef.add(payload);
                 if (context.mounted) Navigator.pop(context);
               },
               child: const Text("Save"),
@@ -125,63 +140,62 @@ class TasksTab extends StatelessWidget {
     final titleCtrl = TextEditingController(text: (data['title'] ?? '').toString());
 
     bool hasDeadline = data['dueAt'] is Timestamp;
-    DateTime deadline = hasDeadline
-        ? (data['dueAt'] as Timestamp).toDate()
-        : DateTime.now().add(const Duration(days: 1));
+    DateTime due = hasDeadline ? (data['dueAt'] as Timestamp).toDate() : DateTime.now();
 
     await showDialog(
       context: context,
       builder: (_) => StatefulBuilder(
         builder: (context, setLocal) => AlertDialog(
-          title: const Text("Edit task"),
+          title: const Text("Edit Task"),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              TextField(controller: titleCtrl, decoration: const InputDecoration(hintText: "Task title")),
+              TextField(
+                controller: titleCtrl,
+                decoration: const InputDecoration(labelText: "Title"),
+              ),
               const SizedBox(height: 10),
+
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
-                title: const Text("Add deadline"),
+                title: const Text("Deadline"),
                 value: hasDeadline,
                 onChanged: (v) => setLocal(() => hasDeadline = v),
               ),
-              if (hasDeadline) ...[
+
+              if (hasDeadline)
                 Row(
                   children: [
                     Expanded(
-                      child: Text(_fmtDue(deadline), style: const TextStyle(fontWeight: FontWeight.w800)),
+                      child: Text(
+                        _fmtDT(due),
+                        style: const TextStyle(fontWeight: FontWeight.w800),
+                      ),
                     ),
-                    IconButton(
-                      icon: const Icon(Icons.event),
+                    TextButton(
                       onPressed: () async {
-                        final picked = await _pickDateTime(context, deadline);
-                        if (picked != null) setLocal(() => deadline = picked);
+                        final picked = await _pickDateTime(context, due);
+                        if (picked != null) setLocal(() => due = picked);
                       },
+                      child: const Text("Choose"),
                     ),
                   ],
                 ),
-              ],
             ],
           ),
           actions: [
             TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
             ElevatedButton(
               onPressed: () async {
-                final title = titleCtrl.text.trim();
-                if (title.isEmpty) return;
+                final t = titleCtrl.text.trim();
+                if (t.isEmpty) return;
 
-                final payload = <String, dynamic>{
-                  'title': title,
+                await _tasksRef.doc(doc.id).update({
+                  'title': t,
+                  'dueAt': hasDeadline ? Timestamp.fromDate(due) : null,
                   'updatedAt': FieldValue.serverTimestamp(),
-                };
+                });
 
-                if (hasDeadline) {
-                  payload['dueAt'] = Timestamp.fromDate(deadline);
-                } else {
-                  payload['dueAt'] = FieldValue.delete();
-                }
-
-                await _tasksRef.doc(doc.id).update(payload);
                 if (context.mounted) Navigator.pop(context);
               },
               child: const Text("Save"),
@@ -192,15 +206,69 @@ class TasksTab extends StatelessWidget {
     );
   }
 
-  Future<void> _setDone(String id, bool done) async {
-    await _tasksRef.doc(id).update({
-      'done': done,
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
+  // ---------- UI ----------
+  Widget _sectionTitle(String text) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 8, bottom: 8),
+      child: Text(text, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+    );
   }
 
-  Future<void> _delete(String id) async {
-    await _tasksRef.doc(id).delete();
+  Widget _cardWrap(Widget child) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: _cardColor,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppTheme.dark, width: 2),
+      ),
+      child: child,
+    );
+  }
+
+  Widget _taskRow({
+    required String title,
+    String subtitle = "",
+    bool subtitleRed = false,
+    bool showCheck = true,
+    bool checked = false,
+    VoidCallback? onToggle,
+    VoidCallback? onEdit,
+    VoidCallback? onDelete,
+  }) {
+    return Row(
+      children: [
+        if (showCheck)
+          GestureDetector(
+            onTap: onToggle,
+            child: Icon(checked ? Icons.check_circle : Icons.radio_button_unchecked),
+          )
+        else
+          const SizedBox(width: 24),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: const TextStyle(fontWeight: FontWeight.w900)),
+              if (subtitle.trim().isNotEmpty) ...[
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 12,
+                    color: subtitleRed ? Colors.red : null,
+                  ),
+                )
+              ]
+            ],
+          ),
+        ),
+        if (onEdit != null) IconButton(onPressed: onEdit, icon: const Icon(Icons.edit)),
+        if (onDelete != null) IconButton(onPressed: onDelete, icon: const Icon(Icons.delete)),
+      ],
+    );
   }
 
   @override
@@ -223,347 +291,138 @@ class TasksTab extends StatelessWidget {
         ),
         child: SafeArea(
           child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-            stream: _tasksRef.orderBy('createdAt', descending: true).snapshots(),
+            stream: _tasksRef.snapshots(),
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) {
                 return const Center(child: CircularProgressIndicator());
               }
-              if (snapshot.hasError) return Center(child: Text("Error: ${snapshot.error}"));
+              if (snapshot.hasError) {
+                return Center(child: Text("Error: ${snapshot.error}"));
+              }
 
-              final docs = snapshot.data?.docs ?? [];
+              final all = snapshot.data?.docs ?? [];
 
-              final upcoming = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
-              final noDeadline = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+              final active = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
               final expired = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
               final completed = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
 
-              for (final d in docs) {
+              for (final d in all) {
                 final data = d.data();
                 final done = (data['done'] ?? false) == true;
+
                 final due = data['dueAt'];
+                final hasDue = due is Timestamp;
+                final isExpired = hasDue && due.toDate().isBefore(now) && !done;
 
                 if (done) {
                   completed.add(d);
-                  continue;
-                }
-
-                if (due is Timestamp) {
-                  final dueDate = due.toDate();
-                  if (dueDate.isBefore(now)) {
-                    expired.add(d);
-                  } else {
-                    upcoming.add(d);
-                  }
+                } else if (isExpired) {
+                  expired.add(d);
                 } else {
-                  noDeadline.add(d);
+                  active.add(d);
                 }
               }
 
-              // Sorting
-              upcoming.sort((a, b) {
-                final aD = (a.data()['dueAt'] as Timestamp).toDate();
-                final bD = (b.data()['dueAt'] as Timestamp).toDate();
-                return aD.compareTo(bD);
-              });
+              int sortByDue(a, b) {
+                final aDue = a.data()['dueAt'];
+                final bDue = b.data()['dueAt'];
+                final aHas = aDue is Timestamp;
+                final bHas = bDue is Timestamp;
+                if (aHas && bHas) return aDue.toDate().compareTo(bDue.toDate());
+                if (aHas && !bHas) return -1;
+                if (!aHas && bHas) return 1;
+                return 0;
+              }
 
-              noDeadline.sort((a, b) {
-                final aC = a.data()['createdAt'];
-                final bC = b.data()['createdAt'];
-                final aDate = aC is Timestamp ? aC.toDate() : DateTime(2000);
-                final bDate = bC is Timestamp ? bC.toDate() : DateTime(2000);
-                return bDate.compareTo(aDate);
-              });
-
-              expired.sort((a, b) {
-                final aD = (a.data()['dueAt'] as Timestamp).toDate();
-                final bD = (b.data()['dueAt'] as Timestamp).toDate();
-                return bD.compareTo(aD);
-              });
-
-              completed.sort((a, b) {
-                final aU = a.data()['updatedAt'];
-                final bU = b.data()['updatedAt'];
-                final aDate = aU is Timestamp ? aU.toDate() : DateTime(2000);
-                final bDate = bU is Timestamp ? bU.toDate() : DateTime(2000);
-                return bDate.compareTo(aDate);
-              });
+              active.sort(sortByDue);
+              expired.sort(sortByDue);
 
               return ListView(
                 padding: const EdgeInsets.fromLTRB(16, 16, 16, 90),
                 children: [
                   const Text("Tasks", style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900)),
-                  const SizedBox(height: 12),
-
-                  // Upcoming
-                  const Text("Upcoming", style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
                   const SizedBox(height: 10),
-                  if (upcoming.isEmpty) _InfoBox(text: "No upcoming tasks.", color: _tileColor),
-                  for (final d in upcoming) ...[
-                    _TaskTileActive(
-                      color: _tileColor,
-                      title: (d.data()['title'] ?? '').toString(),
-                      dueAt: d.data()['dueAt'],
-                      fmtDue: _fmtDue,
-                      onDone: () => _setDone(d.id, true),
-                      onEdit: () => _editTask(context, d),
-                      onDelete: () => _delete(d.id),
+
+                  _sectionTitle("Active"),
+                  _cardWrap(
+                    Column(
+                      children: [
+                        if (active.isEmpty)
+                          const Text("No active tasks.", style: TextStyle(fontWeight: FontWeight.w800))
+                        else
+                          for (int i = 0; i < active.length; i++) ...[
+                            _taskRow(
+                              title: (active[i].data()['title'] ?? '').toString(),
+                              subtitle: (active[i].data()['dueAt'] is Timestamp)
+                                  ? "Deadline: ${_fmtDT((active[i].data()['dueAt'] as Timestamp).toDate())}"
+                                  : "",
+                              showCheck: true,
+                              checked: false,
+                              onToggle: () => _setDone(active[i].id, true),
+                              onEdit: () => _editTask(context, active[i]),
+                              onDelete: () => _delete(active[i].id),
+                            ),
+                            if (i != active.length - 1) const SizedBox(height: 10),
+                          ],
+                      ],
                     ),
-                    const SizedBox(height: 12),
-                  ],
+                  ),
 
-                  const SizedBox(height: 14),
-
-                  // No deadline
-                  const Text("No deadline", style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
                   const SizedBox(height: 10),
-                  if (noDeadline.isEmpty) _InfoBox(text: "No tasks here.", color: _tileColor),
-                  for (final d in noDeadline) ...[
-                    _TaskTileActive(
-                      color: _tileColor,
-                      title: (d.data()['title'] ?? '').toString(),
-                      dueAt: null,
-                      fmtDue: _fmtDue,
-                      onDone: () => _setDone(d.id, true),
-                      onEdit: () => _editTask(context, d),
-                      onDelete: () => _delete(d.id),
+                  _sectionTitle("Expired"),
+                  _cardWrap(
+                    Column(
+                      children: [
+                        if (expired.isEmpty)
+                          const Text("No expired tasks.", style: TextStyle(fontWeight: FontWeight.w800))
+                        else
+                          for (int i = 0; i < expired.length; i++) ...[
+                            _taskRow(
+                              title: (expired[i].data()['title'] ?? '').toString(),
+                              subtitle: (expired[i].data()['dueAt'] is Timestamp)
+                                  ? "Deadline: ${_fmtDT((expired[i].data()['dueAt'] as Timestamp).toDate())}"
+                                  : "",
+                              subtitleRed: true,
+                              showCheck: false, // no checkbox
+                              onEdit: null,
+                              onDelete: () => _delete(expired[i].id),
+                            ),
+                            if (i != expired.length - 1) const SizedBox(height: 10),
+                          ],
+                      ],
                     ),
-                    const SizedBox(height: 12),
-                  ],
+                  ),
 
-                  const SizedBox(height: 14),
-
-                  // Expired (Delete only)
-                  const Text("Expired", style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
                   const SizedBox(height: 10),
-                  if (expired.isEmpty) _InfoBox(text: "No expired tasks.", color: _tileColor),
-                  for (final d in expired) ...[
-                    _TaskTileExpiredDeleteOnly(
-                      color: _tileColor,
-                      title: (d.data()['title'] ?? '').toString(),
-                      dueAt: d.data()['dueAt'],
-                      fmtDue: _fmtDue,
-                      onDelete: () => _delete(d.id),
+                  _sectionTitle("Completed"),
+                  _cardWrap(
+                    Column(
+                      children: [
+                        if (completed.isEmpty)
+                          const Text("No completed tasks yet.", style: TextStyle(fontWeight: FontWeight.w800))
+                        else
+                          for (int i = 0; i < completed.length; i++) ...[
+                            _taskRow(
+                              title: (completed[i].data()['title'] ?? '').toString(),
+                              subtitle: (completed[i].data()['dueAt'] is Timestamp)
+                                  ? "Deadline: ${_fmtDT((completed[i].data()['dueAt'] as Timestamp).toDate())}"
+                                  : "",
+                              showCheck: true,
+                              checked: true,
+                              onToggle: () => _setDone(completed[i].id, false),
+                              onEdit: () => _editTask(context, completed[i]),
+                              onDelete: () => _delete(completed[i].id),
+                            ),
+                            if (i != completed.length - 1) const SizedBox(height: 10),
+                          ],
+                      ],
                     ),
-                    const SizedBox(height: 12),
-                  ],
-
-                  const SizedBox(height: 14),
-
-                  // ✅ Completed
-                  const Text("Completed", style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
-                  const SizedBox(height: 10),
-                  if (completed.isEmpty) _InfoBox(text: "No completed tasks.", color: _tileColor),
-                  for (final d in completed) ...[
-                    _TaskTileCompleted(
-                      color: _tileColor,
-                      title: (d.data()['title'] ?? '').toString(),
-                      dueAt: d.data()['dueAt'],
-                      fmtDue: _fmtDue,
-                      onUndo: () => _setDone(d.id, false),
-                      onDelete: () => _delete(d.id),
-                    ),
-                    const SizedBox(height: 12),
-                  ],
+                  ),
                 ],
               );
             },
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _InfoBox extends StatelessWidget {
-  final String text;
-  final Color color;
-  const _InfoBox({required this.text, required this.color});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppTheme.dark, width: 2),
-      ),
-      child: Text(text, style: const TextStyle(fontWeight: FontWeight.w800)),
-    );
-  }
-}
-
-class _TaskTileActive extends StatelessWidget {
-  final Color color;
-  final String title;
-  final dynamic dueAt; // Timestamp? أو null
-  final String Function(DateTime) fmtDue;
-  final VoidCallback onDone;
-  final VoidCallback onEdit;
-  final VoidCallback onDelete;
-
-  const _TaskTileActive({
-    required this.color,
-    required this.title,
-    required this.dueAt,
-    required this.fmtDue,
-    required this.onDone,
-    required this.onEdit,
-    required this.onDelete,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final hasDue = dueAt is Timestamp;
-    final dueDate = hasDue ? (dueAt as Timestamp).toDate() : null;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppTheme.dark, width: 2),
-      ),
-      child: Row(
-        children: [
-          GestureDetector(onTap: onDone, child: const Icon(Icons.radio_button_unchecked)),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, style: const TextStyle(fontWeight: FontWeight.w900), overflow: TextOverflow.ellipsis),
-                if (hasDue) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    "Deadline: ${fmtDue(dueDate!)}",
-                    style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ],
-            ),
-          ),
-          IconButton(onPressed: onEdit, icon: const Icon(Icons.edit)),
-          IconButton(onPressed: onDelete, icon: const Icon(Icons.delete)),
-        ],
-      ),
-    );
-  }
-}
-
-class _TaskTileExpiredDeleteOnly extends StatelessWidget {
-  final Color color;
-  final String title;
-  final dynamic dueAt;
-  final String Function(DateTime) fmtDue;
-  final VoidCallback onDelete;
-
-  const _TaskTileExpiredDeleteOnly({
-    required this.color,
-    required this.title,
-    required this.dueAt,
-    required this.fmtDue,
-    required this.onDelete,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final dueDate = (dueAt as Timestamp).toDate();
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppTheme.dark, width: 2),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, style: const TextStyle(fontWeight: FontWeight.w900), overflow: TextOverflow.ellipsis),
-                const SizedBox(height: 4),
-                Text(
-                  "Expired: ${fmtDue(dueDate)}",
-                  style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12, color: Colors.red),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ),
-          ),
-          IconButton(onPressed: onDelete, icon: const Icon(Icons.delete)),
-        ],
-      ),
-    );
-  }
-}
-
-class _TaskTileCompleted extends StatelessWidget {
-  final Color color;
-  final String title;
-  final dynamic dueAt;
-  final String Function(DateTime) fmtDue;
-  final VoidCallback onUndo;
-  final VoidCallback onDelete;
-
-  const _TaskTileCompleted({
-    required this.color,
-    required this.title,
-    required this.dueAt,
-    required this.fmtDue,
-    required this.onUndo,
-    required this.onDelete,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final hasDue = dueAt is Timestamp;
-    final dueDate = hasDue ? (dueAt as Timestamp).toDate() : null;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppTheme.dark, width: 2),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.check_circle),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w900,
-                    decoration: TextDecoration.lineThrough,
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                ),
-                if (hasDue) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    "Deadline: ${fmtDue(dueDate!)}",
-                    style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ],
-            ),
-          ),
-          IconButton(
-            tooltip: "Undo",
-            onPressed: onUndo,
-            icon: const Icon(Icons.undo),
-          ),
-          IconButton(onPressed: onDelete, icon: const Icon(Icons.delete)),
-        ],
       ),
     );
   }
