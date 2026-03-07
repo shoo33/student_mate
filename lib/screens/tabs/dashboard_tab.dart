@@ -22,18 +22,11 @@ class DashboardTab extends StatefulWidget {
 class _DashboardTabState extends State<DashboardTab> {
   String get _uid => FirebaseAuth.instance.currentUser!.uid;
 
-  DocumentReference<Map<String, dynamic>> get _userDoc =>
-      FirebaseFirestore.instance.collection('users').doc(_uid);
-
   CollectionReference<Map<String, dynamic>> get _tasksRef =>
       FirebaseFirestore.instance.collection('users').doc(_uid).collection('tasks');
 
-  CollectionReference<Map<String, dynamic>> get _scheduleRef =>
+  CollectionReference<Map<String, dynamic>> get _schedRef =>
       FirebaseFirestore.instance.collection('users').doc(_uid).collection('schedules');
-
-  static const Color _cardColor = Color(0xFFE4B8AC);
-  static const Color _btnSoft = Color(0xFFC27C86);
-  static const Color _tableHeader = Color(0xFFD9A99C);
 
   static const _quotes = [
     "SMALL STEPS, BIG\nPROGRESS",
@@ -53,80 +46,76 @@ class _DashboardTabState extends State<DashboardTab> {
   }
 
   String _weekdayName(int w) {
-    const names = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+    const names = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
     return names[w - 1];
   }
 
   String _monthName(int m) {
     const names = [
-      'January','February','March','April','May','June',
-      'July','August','September','October','November','December'
+      'January',
+      'February',
+      'March',
+      'April',
+      'May',
+      'June',
+      'July',
+      'August',
+      'September',
+      'October',
+      'November',
+      'December'
     ];
     return names[m - 1];
   }
 
-  String _dayShort(int weekday) {
-    const names = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
-    return names[(weekday - 1).clamp(0, 6)];
-  }
-
-  String _fmtMin(int mins) {
-    int h = mins ~/ 60;
+  String _fmtTimeOfDayMinutes(int mins) {
+    final h24 = mins ~/ 60;
     final m = (mins % 60).toString().padLeft(2, '0');
-    final ampm = h >= 12 ? 'pm' : 'am';
-    h = h % 12;
+    final ampm = h24 >= 12 ? 'pm' : 'am';
+    var h = h24 % 12;
     if (h == 0) h = 12;
     return '$h:$m$ampm';
   }
 
-  String _fmtDT(DateTime d) {
-    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-    final day = d.day.toString().padLeft(2, '0');
-    final mon = months[d.month - 1];
-
+  String _fmt(DateTime d) {
     int h = d.hour;
     final m = d.minute.toString().padLeft(2, '0');
     final ampm = h >= 12 ? 'pm' : 'am';
-    h = h % 12;
+    h %= 12;
     if (h == 0) h = 12;
-
-    return "$day $mon • $h:$m$ampm";
+    return '$h:$m$ampm';
   }
 
-  Widget _pillButton(String text, VoidCallback onTap) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-        decoration: BoxDecoration(
-          color: _btnSoft,
-          borderRadius: BorderRadius.circular(18),
-        ),
-        child: Text(
-          text,
-          style: const TextStyle(fontWeight: FontWeight.w900, color: Colors.white),
-        ),
-      ),
-    );
+  String _fmtDateTime(Timestamp ts) {
+    final d = ts.toDate();
+    final dd = d.day.toString().padLeft(2, '0');
+    final mm = _monthName(d.month).substring(0, 3);
+    return '$dd $mm · ${_fmt(d)}';
   }
 
-  Future<void> _setTaskDone(String id, bool v) async {
+  bool _isOverdueTask(Map<String, dynamic> t) {
+    final done = (t['done'] ?? false) == true;
+    if (done) return false;
+    final due = t['dueAt'];
+    if (due is! Timestamp) return false;
+    return due.toDate().isBefore(DateTime.now());
+  }
+
+  bool _isOverdueDatedSchedule(Map<String, dynamic> s) {
+    final type = (s['type'] ?? 'weekly').toString();
+    if (type != 'dated') return false;
+    final done = (s['done'] ?? false) == true;
+    if (done) return false;
+    final end = s['end'];
+    if (end is! Timestamp) return false;
+    return end.toDate().isBefore(DateTime.now());
+  }
+
+  Future<void> _markTaskDone(String id) async {
     await _tasksRef.doc(id).update({
-      'done': v,
+      'done': true,
       'updatedAt': FieldValue.serverTimestamp(),
     });
-  }
-
-  Widget _cardShell({required Widget child}) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: _cardColor,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppTheme.dark, width: 2),
-      ),
-      child: child,
-    );
   }
 
   @override
@@ -143,71 +132,44 @@ class _DashboardTabState extends State<DashboardTab> {
       ),
       child: SafeArea(
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 10, 16, 90),
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
           children: [
-            // ===== Header: Date + Welcome =====
-            StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-              stream: _userDoc.snapshots(),
-              builder: (context, snap) {
-                final data = snap.data?.data();
-                final name = (data?['name'] ?? '').toString().trim();
-
-                return Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFB97E87),
-                    borderRadius: BorderRadius.circular(18),
-                  ),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              "${_weekdayName(now.weekday)}, ${_monthName(now.month)}",
-                              style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w900,
-                                color: Colors.black,
-                              ),
-                            ),
-                            if (name.isNotEmpty) ...[
-                              const SizedBox(height: 4),
-                              Text(
-                                "Welcome, $name",
-                                style: const TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w900,
-                                  color: Colors.black,
-                                ),
-                              ),
-                            ],
-                          ],
-                        ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: AppTheme.rose,
+                borderRadius: BorderRadius.circular(18),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      "${_weekdayName(now.weekday)}, ${_monthName(now.month)}",
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w900,
+                        color: Colors.white,
                       ),
-                      Container(
-                        width: 34,
-                        height: 34,
-                        alignment: Alignment.center,
-                        decoration: const BoxDecoration(
-                          color: Color(0xFFE8A79A),
-                          shape: BoxShape.circle,
-                        ),
-                        child: Text(
-                          "${now.day}",
-                          style: const TextStyle(fontWeight: FontWeight.w900),
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
-                );
-              },
+                  Container(
+                    width: 34,
+                    height: 34,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: AppTheme.beigeBtn,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: AppTheme.dark, width: 2),
+                    ),
+                    child: Text(
+                      "${now.day}",
+                      style: const TextStyle(fontWeight: FontWeight.w900),
+                    ),
+                  ),
+                ],
+              ),
             ),
-
             const SizedBox(height: 12),
-
-            // ===== Quote =====
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
               decoration: BoxDecoration(
@@ -224,278 +186,206 @@ class _DashboardTabState extends State<DashboardTab> {
                 ),
               ),
             ),
-
             const SizedBox(height: 12),
-
-            // ===== Weekly classes (TABLE) =====
-            // ===== Weekly classes (REAL WEEK TABLE) =====
-StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-  stream: _scheduleRef.where('type', isEqualTo: 'weekly').snapshots(),
-  builder: (context, snapshot) {
-    final docs = snapshot.data?.docs ?? [];
-
-    // group by day
-    final Map<int, List<Map<String, dynamic>>> grouped = {};
-    for (final d in docs) {
-      final data = d.data();
-      final day = data['dayOfWeek'];
-      if (day is! int) continue;
-      grouped.putIfAbsent(day, () => []);
-      grouped[day]!.add({
-        'title': (data['title'] ?? '').toString(),
-        'room': (data['room'] ?? '').toString(),
-        'startMin': (data['startMin'] ?? 0) as int,
-        'endMin': (data['endMin'] ?? 0) as int,
-      });
-    }
-
-    // sort inside each day
-    for (final k in grouped.keys) {
-      grouped[k]!.sort((a, b) => (a['startMin'] as int).compareTo(b['startMin'] as int));
-    }
-
-    Widget classChip(Map<String, dynamic> c) {
-      final time = "${_fmtMin(c['startMin'] as int)}-${_fmtMin(c['endMin'] as int)}";
-      final title = (c['title'] as String).trim();
-      final room = (c['room'] as String).trim();
-
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-        decoration: BoxDecoration(
-          color: const Color(0xFFF2B8A8),
-          borderRadius: BorderRadius.circular(14),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(title, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12)),
-            const SizedBox(height: 2),
-            Text(time, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 11)),
-            if (room.isNotEmpty) ...[
-              const SizedBox(height: 2),
-              Text("Room: $room", style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 11)),
-            ],
-          ],
-        ),
-      );
-    }
-
-    return _cardShell(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Expanded(
-                child: Text(
-                  "Weekly classes",
-                  style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
-                ),
-              ),
-              _pillButton(docs.isEmpty ? "Add" : "Open", widget.goToSchedule),
-            ],
-          ),
-          const SizedBox(height: 10),
-
-          if (docs.isEmpty)
-            const Text("No weekly classes yet.", style: TextStyle(fontWeight: FontWeight.w800))
-          else
-            Column(
-              children: [
-                // header row
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: _tableHeader,
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: const Row(
-                    children: [
-                      SizedBox(
-                        width: 50,
-                        child: Text("Day", style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12)),
-                      ),
-                      Expanded(
-                        child: Text("Classes", style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12)),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 8),
-
-                // rows Mon..Sun
-                for (final day in [1, 2, 3, 4, 5, 6, 7]) ...[
-                  if ((grouped[day] ?? []).isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 10),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          SizedBox(
-                            width: 50,
-                            child: Padding(
-                              padding: const EdgeInsets.only(top: 8),
-                              child: Text(
-                                _dayShort(day),
-                                style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12),
-                              ),
-                            ),
-                          ),
-                          Expanded(
-                            child: Wrap(
-                              spacing: 8,
-                              runSpacing: 8,
-                              children: [
-                                for (final c in grouped[day]!) classChip(c),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                ],
-              ],
-            ),
-        ],
-      ),
-    );
-  },
-),
-
-            const SizedBox(height: 12),
-
-            // ===== Exams / Events (dated) top 3 upcoming =====
             StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: _scheduleRef.where('type', isEqualTo: 'dated').snapshots(),
-              builder: (context, snapshot) {
-                final all = snapshot.data?.docs ?? [];
-                final now = DateTime.now();
+              stream: _schedRef.snapshots(),
+              builder: (context, snap) {
+                if (snap.connectionState == ConnectionState.waiting) {
+                  return const Padding(
+                    padding: EdgeInsets.only(bottom: 12),
+                    child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                  );
+                }
 
-                final upcoming = all.where((d) {
-                  final data = d.data();
-                  if ((data['done'] ?? false) == true) return false;
-                  if (data['start'] is! Timestamp) return false;
-                  return (data['start'] as Timestamp).toDate().isAfter(now);
-                }).toList()
-                  ..sort((a, b) {
-                    final aS = (a.data()['start'] as Timestamp).toDate();
-                    final bS = (b.data()['start'] as Timestamp).toDate();
-                    return aS.compareTo(bS);
-                  });
+                final all = snap.data?.docs ?? [];
 
-                final top3 = upcoming.take(3).toList();
+                final weekly = all
+                    .where((d) => (d.data()['type'] ?? 'weekly').toString() == 'weekly')
+                    .toList();
 
-                return _cardShell(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          const Expanded(
-                            child: Text("Exams / Events",
-                                style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
-                          ),
-                          _pillButton(upcoming.isEmpty ? "Add" : "More", widget.goToSchedule),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
+                weekly.sort((a, b) {
+                  final aw = (a.data()['dayOfWeek'] ?? 1) as int;
+                  final bw = (b.data()['dayOfWeek'] ?? 1) as int;
+                  if (aw != bw) return aw.compareTo(bw);
+                  final am = (a.data()['startMin'] ?? 0) as int;
+                  final bm = (b.data()['startMin'] ?? 0) as int;
+                  return am.compareTo(bm);
+                });
 
-                      if (upcoming.isEmpty)
-                        const Text("No upcoming events.",
-                            style: TextStyle(fontWeight: FontWeight.w800))
-                      else
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            for (final d in top3) ...[
-                              Text(
-                                (d.data()['title'] ?? '').toString(),
-                                style: const TextStyle(fontWeight: FontWeight.w900),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                "${_fmtDT((d.data()['start'] as Timestamp).toDate())}"
-                                "${((d.data()['room'] ?? '').toString().trim().isEmpty) ? "" : " • ${(d.data()['room'] ?? '').toString()}"}",
-                                style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12),
-                              ),
-                              const SizedBox(height: 8),
-                            ]
-                          ],
-                        ),
-                    ],
-                  ),
-                );
-              },
-            ),
+                final weeklyTop = weekly.take(2).toList();
 
-            const SizedBox(height: 12),
+                final dated = all
+                    .where((d) => (d.data()['type'] ?? 'weekly').toString() == 'dated')
+                    .toList();
 
-            // ===== Tasks top 3 (done=false) =====
-            StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: _tasksRef.where('done', isEqualTo: false).snapshots(),
-              builder: (context, snapshot) {
-                final docs = snapshot.data?.docs ?? [];
-                final now = DateTime.now();
-
-                // ترتيب محلي: اللي عنده dueAt أول + الأقرب
-                docs.sort((a, b) {
-                  final aDue = a.data()['dueAt'];
-                  final bDue = b.data()['dueAt'];
-                  final aHas = aDue is Timestamp;
-                  final bHas = bDue is Timestamp;
-
-                  if (aHas && bHas) {
-                    return (aDue).toDate().compareTo((bDue).toDate());
+                dated.sort((a, b) {
+                  final aStart = a.data()['start'];
+                  final bStart = b.data()['start'];
+                  if (aStart is Timestamp && bStart is Timestamp) {
+                    return aStart.toDate().compareTo(bStart.toDate());
                   }
-                  if (aHas && !bHas) return -1;
-                  if (!aHas && bHas) return 1;
                   return 0;
                 });
 
-                final top = docs.take(3).toList();
+                final datedTop = dated.take(3).toList();
 
-                return _cardShell(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          const Expanded(
-                            child: Text("Tasks",
-                                style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
-                          ),
-                          _pillButton(docs.isEmpty ? "Add" : "More", widget.goToTasks),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-
-                      if (docs.isEmpty)
-                        const Text("No tasks yet.",
-                            style: TextStyle(fontWeight: FontWeight.w800))
-                      else
-                        Column(
-                          children: [
-                            for (final d in top) ...[
-                              _TaskRow(
-                                title: (d.data()['title'] ?? '').toString(),
-                                subtitle: (d.data()['dueAt'] is Timestamp)
-                                    ? "Deadline: ${_fmtDT((d.data()['dueAt'] as Timestamp).toDate())}"
-                                    : "",
-                                subtitleRed: (d.data()['dueAt'] is Timestamp)
-                                    ? ((d.data()['dueAt'] as Timestamp).toDate().isBefore(now))
-                                    : false,
-                                onDone: () => _setTaskDone(d.id, true),
+                return Column(
+                  children: [
+                    GestureDetector(
+                      onTap: widget.goToSchedule,
+                      child: _Card(
+                        title: "Weekly",
+                        actionText: weekly.isEmpty ? "Add" : "More",
+                        onAction: widget.goToSchedule,
+                        child: weeklyTop.isEmpty
+                            ? const Text(
+                                "No weekly classes",
+                                style: TextStyle(fontWeight: FontWeight.w800),
+                              )
+                            : Column(
+                                children: [
+                                  for (int i = 0; i < weeklyTop.length; i++) ...[
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: _Pill(
+                                            text: (weeklyTop[i].data()['title'] ?? '').toString(),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 10),
+                                        _TimePill(
+                                          text:
+                                              "${_fmtTimeOfDayMinutes((weeklyTop[i].data()['startMin'] ?? 0) as int)}\n${_fmtTimeOfDayMinutes((weeklyTop[i].data()['endMin'] ?? 0) as int)}",
+                                        ),
+                                      ],
+                                    ),
+                                    if (i != weeklyTop.length - 1) const SizedBox(height: 10),
+                                  ],
+                                ],
                               ),
-                              const SizedBox(height: 8),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    GestureDetector(
+                      onTap: widget.goToSchedule,
+                      child: _Card(
+                        title: "Appointments",
+                        actionText: dated.isEmpty ? "Add" : "More",
+                        onAction: widget.goToSchedule,
+                        child: datedTop.isEmpty
+                            ? const Text(
+                                "No dated events",
+                                style: TextStyle(fontWeight: FontWeight.w800),
+                              )
+                            : Column(
+                                children: [
+                                  for (final d in datedTop) ...[
+                                    _MiniLine(
+                                      title: (d.data()['title'] ?? '').toString(),
+                                      subtitle: _fmtDateTime(d.data()['start']),
+                                      isOverdue: _isOverdueDatedSchedule(d.data()),
+                                    ),
+                                    const SizedBox(height: 8),
+                                  ],
+                                ],
+                              ),
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+            const SizedBox(height: 12),
+            StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: _tasksRef.where('done', isEqualTo: false).snapshots(),
+              builder: (context, snap) {
+                if (snap.connectionState == ConnectionState.waiting) {
+                  return const Padding(
+                    padding: EdgeInsets.only(bottom: 12),
+                    child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                  );
+                }
+
+                final docs = snap.data?.docs ?? [];
+
+                final withDue = docs.where((d) => d.data()['dueAt'] is Timestamp).toList();
+                final noDue = docs.where((d) => d.data()['dueAt'] is! Timestamp).toList();
+
+                withDue.sort((a, b) {
+                  final ad = (a.data()['dueAt'] as Timestamp).toDate();
+                  final bd = (b.data()['dueAt'] as Timestamp).toDate();
+                  return ad.compareTo(bd);
+                });
+
+                final merged = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+                for (final x in withDue) {
+                  if (merged.length >= 3) break;
+                  merged.add(x);
+                }
+                for (final x in noDue) {
+                  if (merged.length >= 3) break;
+                  merged.add(x);
+                }
+
+                return GestureDetector(
+                  onTap: widget.goToTasks,
+                  child: _Card(
+                    title: "Tasks",
+                    actionText: docs.isEmpty ? "Add" : "More",
+                    onAction: widget.goToTasks,
+                    child: merged.isEmpty
+                        ? const Text(
+                            "No tasks",
+                            style: TextStyle(fontWeight: FontWeight.w800),
+                          )
+                        : Column(
+                            children: [
+                              for (final d in merged) ...[
+                                Row(
+                                  children: [
+                                    GestureDetector(
+                                      onTap: () => _markTaskDone(d.id),
+                                      child: Container(
+                                        width: 18,
+                                        height: 18,
+                                        decoration: BoxDecoration(
+                                          shape: BoxShape.circle,
+                                          border: Border.all(color: AppTheme.dark, width: 2),
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: Text(
+                                        (d.data()['title'] ?? '').toString(),
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    if (d.data()['dueAt'] is Timestamp)
+                                      Text(
+                                        _fmtDateTime(d.data()['dueAt']),
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w900,
+                                          color: _isOverdueTask(d.data())
+                                              ? AppTheme.overdueRed
+                                              : Colors.black87,
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                                const SizedBox(height: 10),
+                              ],
                             ],
-                          ],
-                        ),
-                    ],
+                          ),
                   ),
                 );
               },
             ),
+            const SizedBox(height: 90),
           ],
         ),
       ),
@@ -503,45 +393,141 @@ StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
   }
 }
 
-class _TaskRow extends StatelessWidget {
+class _Card extends StatelessWidget {
+  final String title;
+  final String actionText;
+  final VoidCallback onAction;
+  final Widget child;
+
+  const _Card({
+    required this.title,
+    required this.actionText,
+    required this.onAction,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppTheme.card,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppTheme.dark, width: 2),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
+                ),
+              ),
+              InkWell(
+                onTap: onAction,
+                borderRadius: BorderRadius.circular(999),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: AppTheme.rose,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    actionText,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+              )
+            ],
+          ),
+          const SizedBox(height: 10),
+          child,
+        ],
+      ),
+    );
+  }
+}
+
+class _Pill extends StatelessWidget {
+  final String text;
+  const _Pill({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 38,
+      alignment: Alignment.centerLeft,
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF2B8A8),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Text(text, style: const TextStyle(fontWeight: FontWeight.w900)),
+    );
+  }
+}
+
+class _TimePill extends StatelessWidget {
+  final String text;
+  const _TimePill({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 82,
+      height: 38,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: const Color(0xFFE8A79A),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Text(
+        text,
+        textAlign: TextAlign.center,
+        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w900),
+      ),
+    );
+  }
+}
+
+class _MiniLine extends StatelessWidget {
   final String title;
   final String subtitle;
-  final bool subtitleRed;
-  final VoidCallback onDone;
+  final bool isOverdue;
 
-  const _TaskRow({
+  const _MiniLine({
     required this.title,
     required this.subtitle,
-    required this.subtitleRed,
-    required this.onDone,
+    required this.isOverdue,
   });
 
   @override
   Widget build(BuildContext context) {
     return Row(
       children: [
-        GestureDetector(onTap: onDone, child: const Icon(Icons.radio_button_unchecked)),
-        const SizedBox(width: 10),
         Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(title,
-                  style: const TextStyle(fontWeight: FontWeight.w900),
-                  overflow: TextOverflow.ellipsis),
-              if (subtitle.trim().isNotEmpty) ...[
-                const SizedBox(height: 2),
-                Text(
-                  subtitle,
-                  style: TextStyle(
-                    fontWeight: FontWeight.w800,
-                    fontSize: 12,
-                    color: subtitleRed ? Colors.red : null,
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ],
+          child: Text(
+            title,
+            style: TextStyle(
+              fontWeight: FontWeight.w900,
+              color: isOverdue ? AppTheme.overdueRed : Colors.black87,
+            ),
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+        const SizedBox(width: 10),
+        Text(
+          subtitle,
+          style: TextStyle(
+            fontWeight: FontWeight.w900,
+            color: isOverdue ? AppTheme.overdueRed : Colors.black87,
           ),
         ),
       ],
