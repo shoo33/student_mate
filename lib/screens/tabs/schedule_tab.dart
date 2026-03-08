@@ -57,6 +57,11 @@ class _ScheduleTabState extends State<ScheduleTab> {
     return end.toDate().isBefore(DateTime.now());
   }
 
+  bool _datePassed(Timestamp? ts) {
+    if (ts == null) return false;
+    return ts.toDate().isBefore(DateTime.now());
+  }
+
   Future<DateTime?> _pickDateTime(BuildContext context, DateTime initial) async {
     final date = await showDatePicker(
       context: context,
@@ -75,6 +80,42 @@ class _ScheduleTabState extends State<ScheduleTab> {
     if (!context.mounted) return null;
 
     return DateTime(date.year, date.month, date.day, time.hour, time.minute);
+  }
+
+  Future<void> _showRestoreExpiredDialog(
+    BuildContext context, {
+    required String typeName,
+    required VoidCallback onEdit,
+  }) async {
+    await showDialog(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: const Text("Date expired"),
+          content: Text(
+            "This $typeName date has already passed.\nEdit the date first if you want to restore it.",
+            style: const TextStyle(fontWeight: FontWeight.w800),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text("Close"),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.rose,
+                foregroundColor: Colors.white,
+              ),
+              onPressed: () {
+                Navigator.pop(ctx);
+                onEdit();
+              },
+              child: const Text("Edit date"),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   void _showAddChooser() {
@@ -602,6 +643,25 @@ class _ScheduleTabState extends State<ScheduleTab> {
     });
   }
 
+  Future<void> _restoreDated(
+    BuildContext context,
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) async {
+    final data = doc.data();
+    final end = data['end'];
+
+    if (end is Timestamp && _datePassed(end)) {
+      await _showRestoreExpiredDialog(
+        context,
+        typeName: "appointment",
+        onEdit: () => _showDatedDialog(doc: doc),
+      );
+      return;
+    }
+
+    await _toggleDatedDone(doc.id, false);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -660,7 +720,20 @@ class _ScheduleTabState extends State<ScheduleTab> {
               });
 
               final overdue = datedAll.where((d) => _isOverdueDated(d.data())).toList();
-              final upcoming = datedAll.where((d) => !_isOverdueDated(d.data())).toList();
+              final active = datedAll.where((d) {
+                final data = d.data();
+                return !_isOverdueDated(data) && ((data['done'] ?? false) != true);
+              }).toList();
+              final completed = datedAll.where((d) => (d.data()['done'] ?? false) == true).toList();
+
+              completed.sort((a, b) {
+                final ad = a.data()['updatedAt'];
+                final bd = b.data()['updatedAt'];
+                if (ad is Timestamp && bd is Timestamp) {
+                  return bd.toDate().compareTo(ad.toDate());
+                }
+                return 0;
+              });
 
               return ListView(
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 90),
@@ -676,6 +749,7 @@ class _ScheduleTabState extends State<ScheduleTab> {
                     ],
                   ),
                   const SizedBox(height: 12),
+
                   Container(
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
@@ -742,7 +816,9 @@ class _ScheduleTabState extends State<ScheduleTab> {
                       ],
                     ),
                   ),
+
                   const SizedBox(height: 12),
+
                   Container(
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
@@ -756,6 +832,7 @@ class _ScheduleTabState extends State<ScheduleTab> {
                         const Text("Exams / Events",
                             style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
                         const SizedBox(height: 10),
+
                         if (overdue.isNotEmpty) ...[
                           const Text("Overdue",
                               style: TextStyle(fontWeight: FontWeight.w900)),
@@ -770,6 +847,8 @@ class _ScheduleTabState extends State<ScheduleTab> {
                               showCheck: false,
                               checked: false,
                               onCheck: null,
+                              showRestore: false,
+                              onRestore: null,
                               onEdit: () => _showDatedDialog(doc: d),
                               onDelete: () => _delete(d.id),
                             ),
@@ -777,10 +856,12 @@ class _ScheduleTabState extends State<ScheduleTab> {
                           ],
                           const SizedBox(height: 12),
                         ],
-                        if (upcoming.isEmpty)
-                          const Text("No dated events",
+
+                        if (active.isEmpty)
+                          const Text("No active dated events",
                               style: TextStyle(fontWeight: FontWeight.w800)),
-                        for (final d in upcoming) ...[
+
+                        for (final d in active) ...[
                           _DatedCard(
                             title: (d.data()['title'] ?? '').toString(),
                             subtitle:
@@ -788,8 +869,37 @@ class _ScheduleTabState extends State<ScheduleTab> {
                                 "${((d.data()['room'] ?? '').toString().trim().isEmpty) ? "" : " · Room: ${(d.data()['room'] ?? '').toString()}"}",
                             red: false,
                             showCheck: true,
-                            checked: (d.data()['done'] ?? false) == true,
-                            onCheck: () => _toggleDatedDone(d.id, !((d.data()['done'] ?? false) == true)),
+                            checked: false,
+                            onCheck: () => _toggleDatedDone(d.id, true),
+                            showRestore: false,
+                            onRestore: null,
+                            onEdit: () => _showDatedDialog(doc: d),
+                            onDelete: () => _delete(d.id),
+                          ),
+                          const SizedBox(height: 10),
+                        ],
+
+                        const SizedBox(height: 12),
+                        const Text("Completed",
+                            style: TextStyle(fontWeight: FontWeight.w900)),
+                        const SizedBox(height: 8),
+
+                        if (completed.isEmpty)
+                          const Text("No completed appointments",
+                              style: TextStyle(fontWeight: FontWeight.w800)),
+
+                        for (final d in completed) ...[
+                          _DatedCard(
+                            title: (d.data()['title'] ?? '').toString(),
+                            subtitle:
+                                "${_fmtDateTime(d.data()['start'])} → ${_fmtDateTime(d.data()['end'])}"
+                                "${((d.data()['room'] ?? '').toString().trim().isEmpty) ? "" : " · Room: ${(d.data()['room'] ?? '').toString()}"}",
+                            red: false,
+                            showCheck: false,
+                            checked: false,
+                            onCheck: null,
+                            showRestore: true,
+                            onRestore: () => _restoreDated(context, d),
                             onEdit: () => _showDatedDialog(doc: d),
                             onDelete: () => _delete(d.id),
                           ),
@@ -817,16 +927,22 @@ class _DatedCard extends StatelessWidget {
   final bool checked;
   final VoidCallback? onCheck;
 
+  final bool showRestore;
+  final VoidCallback? onRestore;
+
   final VoidCallback onEdit;
   final VoidCallback onDelete;
 
   const _DatedCard({
+    super.key,
     required this.title,
     required this.subtitle,
     required this.red,
     required this.showCheck,
     required this.checked,
     required this.onCheck,
+    required this.showRestore,
+    required this.onRestore,
     required this.onEdit,
     required this.onDelete,
   });
@@ -862,6 +978,7 @@ class _DatedCard extends StatelessWidget {
               ),
             ),
           if (showCheck) const SizedBox(width: 10),
+
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -885,6 +1002,14 @@ class _DatedCard extends StatelessWidget {
               ],
             ),
           ),
+
+          if (showRestore)
+            IconButton(
+              tooltip: "Restore",
+              onPressed: onRestore,
+              icon: const Icon(Icons.undo),
+            ),
+
           IconButton(
             onPressed: onEdit,
             icon: Icon(Icons.edit, color: red ? AppTheme.overdueRed : Colors.black87),

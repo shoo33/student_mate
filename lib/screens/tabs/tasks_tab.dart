@@ -56,6 +56,47 @@ class TasksTab extends StatelessWidget {
     return due.toDate().isBefore(DateTime.now());
   }
 
+  bool _datePassed(Timestamp? due) {
+    if (due == null) return false;
+    return due.toDate().isBefore(DateTime.now());
+  }
+
+  Future<void> _showRestoreExpiredDialog(
+    BuildContext context, {
+    required String typeName,
+    required VoidCallback onEdit,
+  }) async {
+    await showDialog(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: const Text("Date expired"),
+          content: Text(
+            "This $typeName date has already passed.\nEdit the date first if you want to restore it.",
+            style: const TextStyle(fontWeight: FontWeight.w800),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text("Close"),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.rose,
+                foregroundColor: Colors.white,
+              ),
+              onPressed: () {
+                Navigator.pop(ctx);
+                onEdit();
+              },
+              child: const Text("Edit date"),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   Future<void> _addOrEditDialog(
     BuildContext context, {
     String? docId,
@@ -154,6 +195,30 @@ class TasksTab extends StatelessWidget {
     await _tasksRef.doc(id).delete();
   }
 
+  Future<void> _restoreTask(
+    BuildContext context,
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) async {
+    final data = doc.data();
+    final due = data['dueAt'];
+
+    if (due is Timestamp && _datePassed(due)) {
+      await _showRestoreExpiredDialog(
+        context,
+        typeName: "task",
+        onEdit: () => _addOrEditDialog(
+          context,
+          docId: doc.id,
+          initialTitle: (data['title'] ?? '').toString(),
+          initialDue: due,
+        ),
+      );
+      return;
+    }
+
+    await _toggleDone(doc.id, false);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -209,6 +274,15 @@ class TasksTab extends StatelessWidget {
               final overdue = withDue.where((d) => _isOverdue(d.data())).toList();
               final upcoming = withDue.where((d) => !_isOverdue(d.data())).toList();
 
+              completed.sort((a, b) {
+                final ad = a.data()['updatedAt'];
+                final bd = b.data()['updatedAt'];
+                if (ad is Timestamp && bd is Timestamp) {
+                  return bd.toDate().compareTo(ad.toDate());
+                }
+                return 0;
+              });
+
               return ListView(
                 padding: const EdgeInsets.fromLTRB(16, 16, 16, 90),
                 children: [
@@ -217,6 +291,7 @@ class TasksTab extends StatelessWidget {
                     style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900),
                   ),
                   const SizedBox(height: 12),
+
                   if (overdue.isNotEmpty) ...[
                     const Text("Overdue",
                         style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
@@ -227,6 +302,7 @@ class TasksTab extends StatelessWidget {
                         rightText: _fmtDue(d.data()['dueAt']),
                         rightColor: AppTheme.overdueRed,
                         showCheck: false,
+                        showRestore: false,
                         onEdit: () => _addOrEditDialog(
                           context,
                           docId: d.id,
@@ -239,9 +315,11 @@ class TasksTab extends StatelessWidget {
                     ],
                     const SizedBox(height: 12),
                   ],
+
                   const Text("Active",
                       style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
                   const SizedBox(height: 8),
+
                   if (active.isEmpty)
                     Container(
                       padding: const EdgeInsets.all(16),
@@ -255,6 +333,7 @@ class TasksTab extends StatelessWidget {
                         style: TextStyle(fontWeight: FontWeight.w800),
                       ),
                     ),
+
                   for (final d in [...upcoming, ...noDue]) ...[
                     _TaskCard(
                       title: (d.data()['title'] ?? '').toString(),
@@ -262,6 +341,7 @@ class TasksTab extends StatelessWidget {
                       rightColor: Colors.black87,
                       showCheck: true,
                       onCheck: () => _toggleDone(d.id, true),
+                      showRestore: false,
                       onEdit: () => _addOrEditDialog(
                         context,
                         docId: d.id,
@@ -272,21 +352,24 @@ class TasksTab extends StatelessWidget {
                     ),
                     const SizedBox(height: 10),
                   ],
+
                   const SizedBox(height: 16),
                   const Text("Completed",
                       style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
                   const SizedBox(height: 8),
+
                   if (completed.isEmpty)
                     const Text("No completed tasks",
                         style: TextStyle(fontWeight: FontWeight.w700)),
+
                   for (final d in completed) ...[
                     _TaskCard(
                       title: (d.data()['title'] ?? '').toString(),
-                      rightText: null,
+                      rightText: (d.data()['dueAt'] is Timestamp) ? _fmtDue(d.data()['dueAt']) : null,
                       rightColor: Colors.black87,
-                      showCheck: true,
-                      checked: true,
-                      onCheck: () => _toggleDone(d.id, false),
+                      showCheck: false,
+                      showRestore: true,
+                      onRestore: () => _restoreTask(context, d),
                       onEdit: () => _addOrEditDialog(
                         context,
                         docId: d.id,
@@ -316,16 +399,22 @@ class _TaskCard extends StatelessWidget {
   final bool checked;
   final VoidCallback? onCheck;
 
+  final bool showRestore;
+  final VoidCallback? onRestore;
+
   final VoidCallback onEdit;
   final VoidCallback onDelete;
 
   const _TaskCard({
+    super.key,
     required this.title,
     required this.rightText,
     required this.rightColor,
     required this.showCheck,
     this.checked = false,
     this.onCheck,
+    required this.showRestore,
+    this.onRestore,
     required this.onEdit,
     required this.onDelete,
   });
@@ -355,6 +444,7 @@ class _TaskCard extends StatelessWidget {
               ),
             ),
           if (showCheck) const SizedBox(width: 10),
+
           Expanded(
             child: Text(
               title,
@@ -362,6 +452,7 @@ class _TaskCard extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
             ),
           ),
+
           if (rightText != null) ...[
             const SizedBox(width: 10),
             Text(
@@ -372,9 +463,24 @@ class _TaskCard extends StatelessWidget {
               ),
             ),
           ],
+
           const SizedBox(width: 6),
-          IconButton(onPressed: onEdit, icon: const Icon(Icons.edit)),
-          IconButton(onPressed: onDelete, icon: const Icon(Icons.delete)),
+
+          if (showRestore)
+            IconButton(
+              tooltip: "Restore",
+              onPressed: onRestore,
+              icon: const Icon(Icons.undo),
+            ),
+
+          IconButton(
+            onPressed: onEdit,
+            icon: const Icon(Icons.edit),
+          ),
+          IconButton(
+            onPressed: onDelete,
+            icon: const Icon(Icons.delete),
+          ),
         ],
       ),
     );
