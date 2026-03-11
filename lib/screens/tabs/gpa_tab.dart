@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../../theme/app_theme.dart';
+import '../../app_text.dart';
 
 class GpaTab extends StatefulWidget {
   const GpaTab({super.key});
@@ -125,7 +126,11 @@ class _GpaTabState extends State<GpaTab> {
     }, SetOptions(merge: true));
   }
 
-  Future<void> _addCourseDialog(BuildContext context, List<Map<String, dynamic>> current) async {
+  Future<void> _addCourseDialog(
+    BuildContext context,
+    List<Map<String, dynamic>> current,
+  ) async {
+    final t = AppText(Localizations.localeOf(context).languageCode);
     final nameCtrl = TextEditingController();
     final creditsCtrl = TextEditingController(text: "3");
     String grade = 'A';
@@ -135,55 +140,57 @@ class _GpaTabState extends State<GpaTab> {
       context: context,
       builder: (_) => StatefulBuilder(
         builder: (context, setLocal) => AlertDialog(
-          title: const Text("Add course"),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: nameCtrl,
-                decoration: const InputDecoration(
-                  labelText: "Course",
-                  hintText: "مثال: SWE356",
+          title: Text(t.addCourse),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: nameCtrl,
+                  decoration: InputDecoration(
+                    labelText: t.course,
+                    hintText: t.isArabic ? "مثال: SWE356" : "Example: SWE356",
+                  ),
                 ),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: creditsCtrl,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: "Credits",
-                  hintText: "مثال: 3",
+                const SizedBox(height: 10),
+                TextField(
+                  controller: creditsCtrl,
+                  keyboardType: TextInputType.number,
+                  decoration: InputDecoration(
+                    labelText: t.credits,
+                    hintText: t.isArabic ? "مثال: 3" : "Example: 3",
+                  ),
                 ),
-              ),
-              const SizedBox(height: 10),
-              DropdownButtonFormField<String>(
-                initialValue: grade,
-                items: _gp4.keys
-                    .map((g) => DropdownMenuItem(value: g, child: Text(g)))
-                    .toList(),
-                onChanged: (v) {
-                  if (v == null) return;
-                  setLocal(() {
-                    grade = v;
-                    points = _gp4[v] ?? 0;
-                  });
-                },
-                decoration: const InputDecoration(labelText: "Grade"),
-              ),
-              const SizedBox(height: 6),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  "Points (out of 4): ${points.toStringAsFixed(2)}",
-                  style: const TextStyle(fontWeight: FontWeight.w800),
+                const SizedBox(height: 10),
+                DropdownButtonFormField<String>(
+                  initialValue: grade,
+                  items: _gp4.keys
+                      .map((g) => DropdownMenuItem(value: g, child: Text(g)))
+                      .toList(),
+                  onChanged: (v) {
+                    if (v == null) return;
+                    setLocal(() {
+                      grade = v;
+                      points = _gp4[v] ?? 0;
+                    });
+                  },
+                  decoration: InputDecoration(labelText: t.grade),
                 ),
-              ),
-            ],
+                const SizedBox(height: 6),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    "${t.points}: ${points.toStringAsFixed(2)}",
+                    style: const TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                ),
+              ],
+            ),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text("Cancel"),
+              child: Text(t.cancel),
             ),
             ElevatedButton(
               onPressed: () async {
@@ -202,10 +209,10 @@ class _GpaTabState extends State<GpaTab> {
                 });
 
                 await _saveCoursesOnly(next);
-                _toast("Course saved");
+                _toast(t.courseSaved);
                 if (context.mounted) Navigator.pop(context);
               },
-              child: const Text("Save"),
+              child: Text(t.save),
             ),
           ],
         ),
@@ -220,6 +227,7 @@ class _GpaTabState extends State<GpaTab> {
     required double prevGpaOutOf4,
     required int scaleOutOf,
   }) async {
+    final t = AppText(Localizations.localeOf(context).languageCode);
     int selectedScale = scaleOutOf;
 
     final shownPrevGpa = _convert(prevGpaOutOf4, selectedScale);
@@ -235,43 +243,46 @@ class _GpaTabState extends State<GpaTab> {
       context: context,
       builder: (_) => StatefulBuilder(
         builder: (context, setLocal) => AlertDialog(
-          title: const Text("Cumulative settings"),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              DropdownButtonFormField<int>(
-                initialValue: selectedScale,
-                items: const [
-                  DropdownMenuItem(value: 4, child: Text("GPA out of 4")),
-                  DropdownMenuItem(value: 5, child: Text("GPA out of 5")),
-                ],
-                onChanged: (v) => setLocal(() => selectedScale = v ?? 4),
-                decoration: const InputDecoration(labelText: "Scale"),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: creditsCtrl,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: "Previous Credits",
-                  hintText: "مثال: 60",
+          title: Text(t.cumulativeSettings),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                DropdownButtonFormField<int>(
+                  initialValue: selectedScale,
+                  items: [
+                    DropdownMenuItem(value: 4, child: Text(t.gpaOutOf4)),
+                    DropdownMenuItem(value: 5, child: Text(t.gpaOutOf5)),
+                  ],
+                  onChanged: (v) => setLocal(() => selectedScale = v ?? 4),
+                  decoration: InputDecoration(labelText: t.scale),
                 ),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: gpaCtrl,
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                decoration: InputDecoration(
-                  labelText: "Previous GPA (out of $selectedScale)",
-                  hintText: "مثال: 3.20",
+                const SizedBox(height: 10),
+                TextField(
+                  controller: creditsCtrl,
+                  keyboardType: TextInputType.number,
+                  decoration: InputDecoration(
+                    labelText: t.previousCredits,
+                    hintText: t.isArabic ? "مثال: 60" : "Example: 60",
+                  ),
                 ),
-              ),
-            ],
+                const SizedBox(height: 10),
+                TextField(
+                  controller: gpaCtrl,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: InputDecoration(
+                    labelText:
+                        "${t.previousGpa} (${selectedScale == 5 ? t.gpaOutOf5 : t.gpaOutOf4})",
+                    hintText: t.isArabic ? "مثال: 3.20" : "Example: 3.20",
+                  ),
+                ),
+              ],
+            ),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text("Cancel"),
+              child: Text(t.cancel),
             ),
             ElevatedButton(
               onPressed: () async {
@@ -294,10 +305,10 @@ class _GpaTabState extends State<GpaTab> {
                   scaleOutOf: selectedScale,
                 );
 
-                _toast("Settings saved");
+                _toast(t.settingsSaved);
                 if (context.mounted) Navigator.pop(context);
               },
-              child: const Text("Save"),
+              child: Text(t.save),
             ),
           ],
         ),
@@ -306,14 +317,16 @@ class _GpaTabState extends State<GpaTab> {
   }
 
   Future<void> _deleteCourse(List<Map<String, dynamic>> courses, int index) async {
+    final t = AppText(Localizations.localeOf(context).languageCode);
     final next = List<Map<String, dynamic>>.from(courses);
     next.removeAt(index);
     await _saveCoursesOnly(next);
-    _toast("Course deleted");
+    _toast(t.courseDeleted);
   }
 
   @override
   Widget build(BuildContext context) {
+    final t = AppText(Localizations.localeOf(context).languageCode);
     final pageTop = AppTheme.pageTop(context);
     final pageBottom = AppTheme.pageBottom(context);
     final cardColor = AppTheme.cardColor(context);
@@ -365,7 +378,7 @@ class _GpaTabState extends State<GpaTab> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text(
-                        "GPA (out of $scaleOutOf)",
+                        "${t.gpa} (${scaleOutOf == 5 ? t.gpaOutOf5 : t.gpaOutOf4})",
                         style: TextStyle(
                           fontSize: 22,
                           fontWeight: FontWeight.w900,
@@ -375,7 +388,7 @@ class _GpaTabState extends State<GpaTab> {
                       Row(
                         children: [
                           _softBtn(
-                            "Prev",
+                            t.prev,
                             () => _editPrevDialog(
                               context,
                               courses: courses,
@@ -386,7 +399,7 @@ class _GpaTabState extends State<GpaTab> {
                           ),
                           const SizedBox(width: 10),
                           _softBtn(
-                            "Add",
+                            t.addBtn,
                             () => _addCourseDialog(context, courses),
                           ),
                         ],
@@ -394,7 +407,6 @@ class _GpaTabState extends State<GpaTab> {
                     ],
                   ),
                   const SizedBox(height: 12),
-
                   Container(
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
@@ -406,7 +418,7 @@ class _GpaTabState extends State<GpaTab> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          "Semester GPA",
+                          t.semesterGpa,
                           style: TextStyle(
                             fontWeight: FontWeight.w900,
                             color: textColor,
@@ -423,7 +435,7 @@ class _GpaTabState extends State<GpaTab> {
                         ),
                         const SizedBox(height: 6),
                         Text(
-                          "Credits: ${semCredits.toStringAsFixed(0)}",
+                          "${t.credits}: ${semCredits.toStringAsFixed(0)}",
                           style: TextStyle(
                             fontWeight: FontWeight.w800,
                             color: mutedText,
@@ -432,9 +444,7 @@ class _GpaTabState extends State<GpaTab> {
                       ],
                     ),
                   ),
-
                   const SizedBox(height: 12),
-
                   Container(
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
@@ -446,7 +456,7 @@ class _GpaTabState extends State<GpaTab> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          "Cumulative GPA",
+                          t.cumulativeGpa,
                           style: TextStyle(
                             fontWeight: FontWeight.w900,
                             color: textColor,
@@ -463,7 +473,7 @@ class _GpaTabState extends State<GpaTab> {
                         ),
                         const SizedBox(height: 6),
                         Text(
-                          "Previous credits: ${prevCredits.toStringAsFixed(0)}",
+                          "${t.previousCredits}: ${prevCredits.toStringAsFixed(0)}",
                           style: TextStyle(
                             fontWeight: FontWeight.w800,
                             fontSize: 12,
@@ -473,9 +483,7 @@ class _GpaTabState extends State<GpaTab> {
                       ],
                     ),
                   ),
-
                   const SizedBox(height: 14),
-
                   if (courses.isEmpty)
                     Container(
                       padding: const EdgeInsets.all(14),
@@ -485,14 +493,13 @@ class _GpaTabState extends State<GpaTab> {
                         border: Border.all(color: AppTheme.dark, width: 2),
                       ),
                       child: Text(
-                        "No courses yet.\nPress Add to start.",
+                        t.noCoursesYet,
                         style: TextStyle(
                           fontWeight: FontWeight.w800,
                           color: textColor,
                         ),
                       ),
                     ),
-
                   for (int i = 0; i < courses.length; i++) ...[
                     const SizedBox(height: 12),
                     Container(
@@ -519,8 +526,7 @@ class _GpaTabState extends State<GpaTab> {
                                 ),
                                 const SizedBox(height: 6),
                                 Text(
-                                  "Credits: ${(courses[i]['credits'] ?? 0)} • Grade: ${(courses[i]['grade'] ?? '')}"
-                                  " • Points: ${(_toDouble(courses[i]['points'])).toStringAsFixed(2)}",
+                                  "${t.credits}: ${(courses[i]['credits'] ?? 0)} • ${t.grade}: ${(courses[i]['grade'] ?? '')} • ${t.points}: ${(_toDouble(courses[i]['points'])).toStringAsFixed(2)}",
                                   style: TextStyle(
                                     fontWeight: FontWeight.w800,
                                     fontSize: 12,

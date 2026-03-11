@@ -340,8 +340,6 @@ class _ProfileTabState extends State<ProfileTab> {
               ),
               const SizedBox(height: 8),
               const Text("Email: support@studentmate.app"),
-              const SizedBox(height: 6),
-              Text(t.supportNote),
             ],
           ),
           actions: [
@@ -377,7 +375,6 @@ class _ProfileTabState extends State<ProfileTab> {
                   await _updateSetting('languageCode', v);
                   if (!ctx.mounted) return;
                   Navigator.pop(ctx);
-                  _toast(t.languageUpdated);
                 },
               ),
               RadioListTile<String>(
@@ -389,7 +386,6 @@ class _ProfileTabState extends State<ProfileTab> {
                   await _updateSetting('languageCode', v);
                   if (!ctx.mounted) return;
                   Navigator.pop(ctx);
-                  _toast(t.languageUpdated);
                 },
               ),
             ],

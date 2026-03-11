@@ -7,7 +7,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'theme/app_theme.dart';
 import 'screens/login_screen.dart';
 import 'screens/home_screen.dart';
-import 'app_text.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -29,7 +28,7 @@ class StudentMateApp extends StatelessWidget {
             title: 'Student Mate',
             theme: AppTheme.lightTheme(),
             darkTheme: AppTheme.darkTheme(),
-            themeMode: ThemeMode.light,
+            themeMode: ThemeMode.system,
             localizationsDelegates: const [
               GlobalMaterialLocalizations.delegate,
               GlobalWidgetsLocalizations.delegate,
@@ -55,7 +54,7 @@ class StudentMateApp extends StatelessWidget {
             title: 'Student Mate',
             theme: AppTheme.lightTheme(),
             darkTheme: AppTheme.darkTheme(),
-            themeMode: ThemeMode.light,
+            themeMode: ThemeMode.system,
             localizationsDelegates: const [
               GlobalMaterialLocalizations.delegate,
               GlobalWidgetsLocalizations.delegate,
@@ -69,35 +68,35 @@ class StudentMateApp extends StatelessWidget {
           );
         }
 
+        final settingsDoc = FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .collection('settings')
+            .doc('app');
+
         return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-          stream: FirebaseFirestore.instance
-              .collection('users')
-              .doc(user.uid)
-              .collection('settings')
-              .doc('app')
-              .snapshots(),
+          stream: settingsDoc.snapshots(),
           builder: (context, settingsSnap) {
-            final settings = settingsSnap.data?.data() ?? {};
-            final darkMode = (settings['darkMode'] ?? false) == true;
-            final languageCode = (settings['languageCode'] ?? 'en').toString();
-            final text = AppText(languageCode);
+            final data = settingsSnap.data?.data() ?? {};
+            final languageCode = (data['languageCode'] ?? 'en').toString();
+            final darkMode = (data['darkMode'] ?? false) == true;
 
             return MaterialApp(
               debugShowCheckedModeBanner: false,
-              title: text.appTitle,
+              title: 'Student Mate',
               theme: AppTheme.lightTheme(),
               darkTheme: AppTheme.darkTheme(),
               themeMode: darkMode ? ThemeMode.dark : ThemeMode.light,
-              locale: Locale(languageCode),
-              supportedLocales: const [
-                Locale('en'),
-                Locale('ar'),
-              ],
               localizationsDelegates: const [
                 GlobalMaterialLocalizations.delegate,
                 GlobalWidgetsLocalizations.delegate,
                 GlobalCupertinoLocalizations.delegate,
               ],
+              supportedLocales: const [
+                Locale('en'),
+                Locale('ar'),
+              ],
+              locale: Locale(languageCode),
               home: const HomeScreen(),
             );
           },

@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../../theme/app_theme.dart';
 import '../../services/notification_service.dart';
+import '../../app_text.dart';
 
 class ScheduleTab extends StatefulWidget {
   const ScheduleTab({super.key});
@@ -31,10 +32,7 @@ class _ScheduleTabState extends State<ScheduleTab> {
     );
   }
 
-  String _dayName(int d) {
-    const names = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-    return names[(d - 1).clamp(0, 6)];
-  }
+  String _dayName(int d, AppText t) => t.shortDay(d);
 
   String _fmtMin(int mins) {
     final h24 = mins ~/ 60;
@@ -54,11 +52,46 @@ class _ScheduleTabState extends State<ScheduleTab> {
     return '$h:$m$ampm';
   }
 
-  String _fmtDateTime(Timestamp ts) {
+  String _monthName(int month, AppText t) {
+    if (t.isArabic) {
+      const months = [
+        'يناير',
+        'فبراير',
+        'مارس',
+        'أبريل',
+        'مايو',
+        'يونيو',
+        'يوليو',
+        'أغسطس',
+        'سبتمبر',
+        'أكتوبر',
+        'نوفمبر',
+        'ديسمبر',
+      ];
+      return months[month - 1];
+    }
+
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    return months[month - 1];
+  }
+
+  String _fmtDateTime(Timestamp ts, AppText t) {
     final d = ts.toDate();
     final dd = d.day.toString().padLeft(2, '0');
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    return '$dd ${months[d.month - 1]} · ${_fmt(d)}';
+    return '$dd ${_monthName(d.month, t)} · ${_fmt(d)}';
   }
 
   bool _isOverdueDated(Map<String, dynamic> s) {
@@ -142,19 +175,21 @@ class _ScheduleTabState extends State<ScheduleTab> {
     required String typeName,
     required VoidCallback onEdit,
   }) async {
+    final t = AppText(Localizations.localeOf(context).languageCode);
+
     await showDialog(
       context: context,
       builder: (ctx) {
         return AlertDialog(
-          title: const Text("Date expired"),
+          title: Text(t.dateExpired),
           content: Text(
-            "This $typeName date has already passed.\nEdit the date first if you want to restore it.",
+            t.dateExpiredMessage(typeName),
             style: const TextStyle(fontWeight: FontWeight.w800),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx),
-              child: const Text("Close"),
+              child: Text(t.close),
             ),
             ElevatedButton(
               style: ElevatedButton.styleFrom(
@@ -165,7 +200,7 @@ class _ScheduleTabState extends State<ScheduleTab> {
                 Navigator.pop(ctx);
                 onEdit();
               },
-              child: const Text("Edit date"),
+              child: Text(t.editDate),
             ),
           ],
         );
@@ -174,6 +209,8 @@ class _ScheduleTabState extends State<ScheduleTab> {
   }
 
   void _showAddChooser() {
+    final t = AppText(Localizations.localeOf(context).languageCode);
+
     int tab = 0;
 
     final wTitle = TextEditingController();
@@ -187,24 +224,30 @@ class _ScheduleTabState extends State<ScheduleTab> {
     DateTime eStart = DateTime.now();
     DateTime eEnd = DateTime.now().add(const Duration(hours: 1));
 
-    Future<void> pickWeeklyStart(BuildContext ctx, void Function(void Function()) setLocal) async {
-      final t = await showTimePicker(
+    Future<void> pickWeeklyStart(
+      BuildContext ctx,
+      void Function(void Function()) setLocal,
+    ) async {
+      final time = await showTimePicker(
         context: ctx,
         initialTime: TimeOfDay(hour: wStartMin ~/ 60, minute: wStartMin % 60),
       );
-      if (t == null) return;
+      if (time == null) return;
       if (!ctx.mounted) return;
-      setLocal(() => wStartMin = t.hour * 60 + t.minute);
+      setLocal(() => wStartMin = time.hour * 60 + time.minute);
     }
 
-    Future<void> pickWeeklyEnd(BuildContext ctx, void Function(void Function()) setLocal) async {
-      final t = await showTimePicker(
+    Future<void> pickWeeklyEnd(
+      BuildContext ctx,
+      void Function(void Function()) setLocal,
+    ) async {
+      final time = await showTimePicker(
         context: ctx,
         initialTime: TimeOfDay(hour: wEndMin ~/ 60, minute: wEndMin % 60),
       );
-      if (t == null) return;
+      if (time == null) return;
       if (!ctx.mounted) return;
-      setLocal(() => wEndMin = t.hour * 60 + t.minute);
+      setLocal(() => wEndMin = time.hour * 60 + time.minute);
     }
 
     showDialog(
@@ -239,124 +282,130 @@ class _ScheduleTabState extends State<ScheduleTab> {
             }
 
             return AlertDialog(
-              title: const Text("Add"),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Row(
-                    children: [
-                      tabBtn("Weekly", 0),
-                      const SizedBox(width: 10),
-                      tabBtn("Exams", 1),
+              title: Text(t.add),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      children: [
+                        tabBtn(t.weekly, 0),
+                        const SizedBox(width: 10),
+                        tabBtn(t.appointments, 1),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+                    if (tab == 0) ...[
+                      TextField(
+                        controller: wTitle,
+                        decoration: InputDecoration(labelText: t.course),
+                      ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: wRoom,
+                        decoration: InputDecoration(
+                          labelText: t.isArabic ? "القاعة (اختياري)" : "Room (optional)",
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      DropdownButtonFormField<int>(
+                        initialValue: wDay,
+                        items: [
+                          DropdownMenuItem(value: 1, child: Text(t.sunday)),
+                          DropdownMenuItem(value: 2, child: Text(t.monday)),
+                          DropdownMenuItem(value: 3, child: Text(t.tuesday)),
+                          DropdownMenuItem(value: 4, child: Text(t.wednesday)),
+                          DropdownMenuItem(value: 5, child: Text(t.thursday)),
+                          DropdownMenuItem(value: 6, child: Text(t.friday)),
+                          DropdownMenuItem(value: 7, child: Text(t.saturday)),
+                        ],
+                        onChanged: (v) => setLocal(() => wDay = v ?? 1),
+                        decoration: InputDecoration(labelText: t.day),
+                      ),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              "${t.start}: ${_fmtMin(wStartMin)}",
+                              style: const TextStyle(fontWeight: FontWeight.w900),
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.access_time),
+                            onPressed: () => pickWeeklyStart(ctx, setLocal),
+                          ),
+                        ],
+                      ),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              "${t.end}: ${_fmtMin(wEndMin)}",
+                              style: const TextStyle(fontWeight: FontWeight.w900),
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.access_time),
+                            onPressed: () => pickWeeklyEnd(ctx, setLocal),
+                          ),
+                        ],
+                      ),
+                    ] else ...[
+                      TextField(
+                        controller: eTitle,
+                        decoration: InputDecoration(labelText: t.title),
+                      ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: eRoom,
+                        decoration: InputDecoration(
+                          labelText: t.isArabic ? "القاعة (اختياري)" : "Room (optional)",
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              "${t.start}: ${_fmtDateTime(Timestamp.fromDate(eStart), t)}",
+                              style: const TextStyle(fontWeight: FontWeight.w900),
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.calendar_month),
+                            onPressed: () async {
+                              final picked = await _pickDateTime(ctx, eStart);
+                              if (picked != null) setLocal(() => eStart = picked);
+                            },
+                          ),
+                        ],
+                      ),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              "${t.end}: ${_fmtDateTime(Timestamp.fromDate(eEnd), t)}",
+                              style: const TextStyle(fontWeight: FontWeight.w900),
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.calendar_month),
+                            onPressed: () async {
+                              final picked = await _pickDateTime(ctx, eEnd);
+                              if (picked != null) setLocal(() => eEnd = picked);
+                            },
+                          ),
+                        ],
+                      ),
                     ],
-                  ),
-                  const SizedBox(height: 14),
-                  if (tab == 0) ...[
-                    TextField(
-                      controller: wTitle,
-                      decoration: const InputDecoration(labelText: "Course"),
-                    ),
-                    const SizedBox(height: 10),
-                    TextField(
-                      controller: wRoom,
-                      decoration: const InputDecoration(labelText: "Room (optional)"),
-                    ),
-                    const SizedBox(height: 10),
-                    DropdownButtonFormField<int>(
-                      initialValue: wDay,
-                      items: const [
-                        DropdownMenuItem(value: 1, child: Text("Sunday")),
-                        DropdownMenuItem(value: 2, child: Text("Monday")),
-                        DropdownMenuItem(value: 3, child: Text("Tuesday")),
-                        DropdownMenuItem(value: 4, child: Text("Wednesday")),
-                        DropdownMenuItem(value: 5, child: Text("Thursday")),
-                        DropdownMenuItem(value: 6, child: Text("Friday")),
-                        DropdownMenuItem(value: 7, child: Text("Saturday")),
-                      ],
-                      onChanged: (v) => setLocal(() => wDay = v ?? 1),
-                      decoration: const InputDecoration(labelText: "Day"),
-                    ),
-                    const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            "Start: ${_fmtMin(wStartMin)}",
-                            style: const TextStyle(fontWeight: FontWeight.w900),
-                          ),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.access_time),
-                          onPressed: () => pickWeeklyStart(ctx, setLocal),
-                        ),
-                      ],
-                    ),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            "End: ${_fmtMin(wEndMin)}",
-                            style: const TextStyle(fontWeight: FontWeight.w900),
-                          ),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.access_time),
-                          onPressed: () => pickWeeklyEnd(ctx, setLocal),
-                        ),
-                      ],
-                    ),
-                  ] else ...[
-                    TextField(
-                      controller: eTitle,
-                      decoration: const InputDecoration(labelText: "Title"),
-                    ),
-                    const SizedBox(height: 10),
-                    TextField(
-                      controller: eRoom,
-                      decoration: const InputDecoration(labelText: "Room (optional)"),
-                    ),
-                    const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            "Start: ${_fmtDateTime(Timestamp.fromDate(eStart))}",
-                            style: const TextStyle(fontWeight: FontWeight.w900),
-                          ),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.calendar_month),
-                          onPressed: () async {
-                            final picked = await _pickDateTime(ctx, eStart);
-                            if (picked != null) setLocal(() => eStart = picked);
-                          },
-                        ),
-                      ],
-                    ),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            "End: ${_fmtDateTime(Timestamp.fromDate(eEnd))}",
-                            style: const TextStyle(fontWeight: FontWeight.w900),
-                          ),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.calendar_month),
-                          onPressed: () async {
-                            final picked = await _pickDateTime(ctx, eEnd);
-                            if (picked != null) setLocal(() => eEnd = picked);
-                          },
-                        ),
-                      ],
-                    ),
                   ],
-                ],
+                ),
               ),
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(ctx),
-                  child: const Text("Cancel"),
+                  child: Text(t.cancel),
                 ),
                 ElevatedButton(
                   style: ElevatedButton.styleFrom(
@@ -385,7 +434,7 @@ class _ScheduleTabState extends State<ScheduleTab> {
                         'endMin': endMin,
                         'createdAt': FieldValue.serverTimestamp(),
                       });
-                      _toast("Weekly class saved");
+                      _toast(t.weeklyClassSaved);
                     } else {
                       final title = eTitle.text.trim();
                       if (title.isEmpty) return;
@@ -413,12 +462,12 @@ class _ScheduleTabState extends State<ScheduleTab> {
                         title: title,
                         start: start,
                       );
-                      _toast("Appointment saved");
+                      _toast(t.appointmentSaved);
                     }
 
                     if (ctx.mounted) Navigator.pop(ctx);
                   },
-                  child: const Text("Save"),
+                  child: Text(t.save),
                 ),
               ],
             );
@@ -429,6 +478,7 @@ class _ScheduleTabState extends State<ScheduleTab> {
   }
 
   void _showWeeklyDialog({QueryDocumentSnapshot<Map<String, dynamic>>? doc}) {
+    final t = AppText(Localizations.localeOf(context).languageCode);
     final data = doc?.data();
 
     final titleCtrl = TextEditingController(text: (data?['title'] ?? '').toString());
@@ -444,89 +494,93 @@ class _ScheduleTabState extends State<ScheduleTab> {
         return StatefulBuilder(
           builder: (ctx, setLocal) {
             Future<void> pickStart() async {
-              final t = await showTimePicker(
+              final picked = await showTimePicker(
                 context: ctx,
                 initialTime: TimeOfDay(hour: startMin ~/ 60, minute: startMin % 60),
               );
-              if (t == null) return;
+              if (picked == null) return;
               if (!ctx.mounted) return;
-              setLocal(() => startMin = t.hour * 60 + t.minute);
+              setLocal(() => startMin = picked.hour * 60 + picked.minute);
             }
 
             Future<void> pickEnd() async {
-              final t = await showTimePicker(
+              final picked = await showTimePicker(
                 context: ctx,
                 initialTime: TimeOfDay(hour: endMin ~/ 60, minute: endMin % 60),
               );
-              if (t == null) return;
+              if (picked == null) return;
               if (!ctx.mounted) return;
-              setLocal(() => endMin = t.hour * 60 + t.minute);
+              setLocal(() => endMin = picked.hour * 60 + picked.minute);
             }
 
             return AlertDialog(
-              title: Text(doc == null ? "Add Weekly class" : "Edit Weekly class"),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextField(
-                    controller: titleCtrl,
-                    decoration: const InputDecoration(hintText: "Course name"),
-                  ),
-                  const SizedBox(height: 10),
-                  TextField(
-                    controller: roomCtrl,
-                    decoration: const InputDecoration(hintText: "Room (optional)"),
-                  ),
-                  const SizedBox(height: 12),
-                  DropdownButtonFormField<int>(
-                    initialValue: dayOfWeek,
-                    items: const [
-                      DropdownMenuItem(value: 1, child: Text("Sunday")),
-                      DropdownMenuItem(value: 2, child: Text("Monday")),
-                      DropdownMenuItem(value: 3, child: Text("Tuesday")),
-                      DropdownMenuItem(value: 4, child: Text("Wednesday")),
-                      DropdownMenuItem(value: 5, child: Text("Thursday")),
-                      DropdownMenuItem(value: 6, child: Text("Friday")),
-                      DropdownMenuItem(value: 7, child: Text("Saturday")),
-                    ],
-                    onChanged: (v) => setLocal(() => dayOfWeek = v ?? 1),
-                    decoration: const InputDecoration(labelText: "Day"),
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          "Start: ${_fmtMin(startMin)}",
-                          style: const TextStyle(fontWeight: FontWeight.w900),
+              title: Text(doc == null ? t.addWeeklyClass : t.editWeeklyClass),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: titleCtrl,
+                      decoration: InputDecoration(hintText: t.course),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: roomCtrl,
+                      decoration: InputDecoration(
+                        hintText: t.isArabic ? "القاعة (اختياري)" : "Room (optional)",
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<int>(
+                      initialValue: dayOfWeek,
+                      items: [
+                        DropdownMenuItem(value: 1, child: Text(t.sunday)),
+                        DropdownMenuItem(value: 2, child: Text(t.monday)),
+                        DropdownMenuItem(value: 3, child: Text(t.tuesday)),
+                        DropdownMenuItem(value: 4, child: Text(t.wednesday)),
+                        DropdownMenuItem(value: 5, child: Text(t.thursday)),
+                        DropdownMenuItem(value: 6, child: Text(t.friday)),
+                        DropdownMenuItem(value: 7, child: Text(t.saturday)),
+                      ],
+                      onChanged: (v) => setLocal(() => dayOfWeek = v ?? 1),
+                      decoration: InputDecoration(labelText: t.day),
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            "${t.start}: ${_fmtMin(startMin)}",
+                            style: const TextStyle(fontWeight: FontWeight.w900),
+                          ),
                         ),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.access_time),
-                        onPressed: pickStart,
-                      ),
-                    ],
-                  ),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          "End: ${_fmtMin(endMin)}",
-                          style: const TextStyle(fontWeight: FontWeight.w900),
+                        IconButton(
+                          icon: const Icon(Icons.access_time),
+                          onPressed: pickStart,
                         ),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.access_time),
-                        onPressed: pickEnd,
-                      ),
-                    ],
-                  ),
-                ],
+                      ],
+                    ),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            "${t.end}: ${_fmtMin(endMin)}",
+                            style: const TextStyle(fontWeight: FontWeight.w900),
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.access_time),
+                          onPressed: pickEnd,
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(ctx),
-                  child: const Text("Cancel"),
+                  child: Text(t.cancel),
                 ),
                 ElevatedButton(
                   style: ElevatedButton.styleFrom(
@@ -557,15 +611,15 @@ class _ScheduleTabState extends State<ScheduleTab> {
 
                     if (doc == null) {
                       await ref.add(payload);
-                      _toast("Weekly class saved");
+                      _toast(t.weeklyClassSaved);
                     } else {
                       await ref.doc(doc.id).update(payload);
-                      _toast("Weekly class updated");
+                      _toast(t.weeklyClassUpdated);
                     }
 
                     if (ctx.mounted) Navigator.pop(ctx);
                   },
-                  child: const Text("Save"),
+                  child: Text(t.save),
                 ),
               ],
             );
@@ -576,6 +630,7 @@ class _ScheduleTabState extends State<ScheduleTab> {
   }
 
   void _showDatedDialog({QueryDocumentSnapshot<Map<String, dynamic>>? doc}) {
+    final t = AppText(Localizations.localeOf(context).languageCode);
     final data = doc?.data();
 
     final titleCtrl = TextEditingController(text: (data?['title'] ?? '').toString());
@@ -595,60 +650,64 @@ class _ScheduleTabState extends State<ScheduleTab> {
         return StatefulBuilder(
           builder: (ctx, setLocal) {
             return AlertDialog(
-              title: Text(doc == null ? "Add Exam / Event" : "Edit Exam / Event"),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextField(
-                    controller: titleCtrl,
-                    decoration: const InputDecoration(hintText: "Title"),
-                  ),
-                  const SizedBox(height: 10),
-                  TextField(
-                    controller: roomCtrl,
-                    decoration: const InputDecoration(hintText: "Room (optional)"),
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          "Start: ${_fmtDateTime(Timestamp.fromDate(start))}",
-                          style: const TextStyle(fontWeight: FontWeight.w900),
+              title: Text(doc == null ? t.addExamEvent : t.editExamEvent),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: titleCtrl,
+                      decoration: InputDecoration(hintText: t.title),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: roomCtrl,
+                      decoration: InputDecoration(
+                        hintText: t.isArabic ? "القاعة (اختياري)" : "Room (optional)",
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            "${t.start}: ${_fmtDateTime(Timestamp.fromDate(start), t)}",
+                            style: const TextStyle(fontWeight: FontWeight.w900),
+                          ),
                         ),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.calendar_month),
-                        onPressed: () async {
-                          final picked = await _pickDateTime(ctx, start);
-                          if (picked != null) setLocal(() => start = picked);
-                        },
-                      ),
-                    ],
-                  ),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          "End: ${_fmtDateTime(Timestamp.fromDate(end))}",
-                          style: const TextStyle(fontWeight: FontWeight.w900),
+                        IconButton(
+                          icon: const Icon(Icons.calendar_month),
+                          onPressed: () async {
+                            final picked = await _pickDateTime(ctx, start);
+                            if (picked != null) setLocal(() => start = picked);
+                          },
                         ),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.calendar_month),
-                        onPressed: () async {
-                          final picked = await _pickDateTime(ctx, end);
-                          if (picked != null) setLocal(() => end = picked);
-                        },
-                      ),
-                    ],
-                  ),
-                ],
+                      ],
+                    ),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            "${t.end}: ${_fmtDateTime(Timestamp.fromDate(end), t)}",
+                            style: const TextStyle(fontWeight: FontWeight.w900),
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.calendar_month),
+                          onPressed: () async {
+                            final picked = await _pickDateTime(ctx, end);
+                            if (picked != null) setLocal(() => end = picked);
+                          },
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(ctx),
-                  child: const Text("Cancel"),
+                  child: Text(t.cancel),
                 ),
                 ElevatedButton(
                   style: ElevatedButton.styleFrom(
@@ -687,7 +746,7 @@ class _ScheduleTabState extends State<ScheduleTab> {
                         title: title,
                         start: start,
                       );
-                      _toast("Appointment saved");
+                      _toast(t.appointmentSaved);
                     } else {
                       await ref.doc(doc.id).update(payload);
                       await _cancelReminderForDoc(doc.id);
@@ -696,12 +755,12 @@ class _ScheduleTabState extends State<ScheduleTab> {
                         title: title,
                         start: start,
                       );
-                      _toast("Appointment updated");
+                      _toast(t.appointmentUpdated);
                     }
 
                     if (ctx.mounted) Navigator.pop(ctx);
                   },
-                  child: const Text("Save"),
+                  child: Text(t.save),
                 ),
               ],
             );
@@ -712,12 +771,15 @@ class _ScheduleTabState extends State<ScheduleTab> {
   }
 
   Future<void> _delete(String id) async {
+    final t = AppText(Localizations.localeOf(context).languageCode);
     await _cancelReminderForDoc(id);
     await ref.doc(id).delete();
-    _toast("Deleted");
+    _toast(t.appointmentDeleted);
   }
 
   Future<void> _toggleDatedDone(String id, bool done) async {
+    final t = AppText(Localizations.localeOf(context).languageCode);
+
     await ref.doc(id).update({
       'done': done,
       'updatedAt': FieldValue.serverTimestamp(),
@@ -725,7 +787,7 @@ class _ScheduleTabState extends State<ScheduleTab> {
 
     if (done) {
       await _cancelReminderForDoc(id);
-      _toast("Marked as completed");
+      _toast(t.markedCompleted);
     }
   }
 
@@ -733,13 +795,14 @@ class _ScheduleTabState extends State<ScheduleTab> {
     BuildContext context,
     QueryDocumentSnapshot<Map<String, dynamic>> doc,
   ) async {
+    final t = AppText(Localizations.localeOf(context).languageCode);
     final data = doc.data();
     final end = data['end'];
 
     if (end is Timestamp && _datePassed(end)) {
       await _showRestoreExpiredDialog(
         context,
-        typeName: "appointment",
+        typeName: t.appointmentWord,
         onEdit: () => _showDatedDialog(doc: doc),
       );
       return;
@@ -755,11 +818,12 @@ class _ScheduleTabState extends State<ScheduleTab> {
         start: start.toDate(),
       );
     }
-    _toast("Restored");
+    _toast(t.appointmentRestored);
   }
 
   @override
   Widget build(BuildContext context) {
+    final t = AppText(Localizations.localeOf(context).languageCode);
     final pageTop = AppTheme.pageTop(context);
     final pageBottom = AppTheme.pageBottom(context);
     final cardColor = AppTheme.cardColor(context);
@@ -786,9 +850,7 @@ class _ScheduleTabState extends State<ScheduleTab> {
             stream: ref.snapshots(),
             builder: (context, snap) {
               if (snap.connectionState == ConnectionState.waiting) {
-                return const Center(
-                  child: CircularProgressIndicator(),
-                );
+                return const Center(child: CircularProgressIndicator());
               }
               if (snap.hasError) {
                 return Center(child: Text("Error: ${snap.error}"));
@@ -827,7 +889,8 @@ class _ScheduleTabState extends State<ScheduleTab> {
                 final data = d.data();
                 return !_isOverdueDated(data) && ((data['done'] ?? false) != true);
               }).toList();
-              final completed = datedAll.where((d) => (d.data()['done'] ?? false) == true).toList();
+              final completed =
+                  datedAll.where((d) => (d.data()['done'] ?? false) == true).toList();
 
               completed.sort((a, b) {
                 final ad = a.data()['updatedAt'];
@@ -842,7 +905,7 @@ class _ScheduleTabState extends State<ScheduleTab> {
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 90),
                 children: [
                   Text(
-                    "Schedule",
+                    t.schedule,
                     style: TextStyle(
                       fontSize: 22,
                       fontWeight: FontWeight.w900,
@@ -850,7 +913,6 @@ class _ScheduleTabState extends State<ScheduleTab> {
                     ),
                   ),
                   const SizedBox(height: 12),
-
                   Container(
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
@@ -862,7 +924,7 @@ class _ScheduleTabState extends State<ScheduleTab> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          "Weekly classes",
+                          t.weeklyClasses,
                           style: TextStyle(
                             fontWeight: FontWeight.w900,
                             fontSize: 16,
@@ -872,7 +934,7 @@ class _ScheduleTabState extends State<ScheduleTab> {
                         const SizedBox(height: 10),
                         if (weekly.isEmpty)
                           Text(
-                            "No weekly classes",
+                            t.noWeeklyClasses,
                             style: TextStyle(
                               fontWeight: FontWeight.w800,
                               color: textColor,
@@ -891,7 +953,7 @@ class _ScheduleTabState extends State<ScheduleTab> {
                                 SizedBox(
                                   width: 40,
                                   child: Text(
-                                    _dayName((d.data()['dayOfWeek'] ?? 1) as int),
+                                    _dayName((d.data()['dayOfWeek'] ?? 1) as int, t),
                                     style: TextStyle(
                                       fontWeight: FontWeight.w900,
                                       color: textColor,
@@ -913,7 +975,7 @@ class _ScheduleTabState extends State<ScheduleTab> {
                                       const SizedBox(height: 2),
                                       Text(
                                         "${_fmtMin((d.data()['startMin'] ?? 0) as int)} → ${_fmtMin((d.data()['endMin'] ?? 0) as int)}"
-                                        "${((d.data()['room'] ?? '').toString().trim().isEmpty) ? "" : " · Room: ${(d.data()['room'] ?? '').toString()}"}",
+                                        "${((d.data()['room'] ?? '').toString().trim().isEmpty) ? "" : t.isArabic ? " · ${t.room}: ${(d.data()['room'] ?? '').toString()}" : " · Room: ${(d.data()['room'] ?? '').toString()}"}",
                                         style: TextStyle(
                                           fontWeight: FontWeight.w800,
                                           color: textColor,
@@ -937,11 +999,9 @@ class _ScheduleTabState extends State<ScheduleTab> {
                       ],
                     ),
                   ),
-
                   const SizedBox(height: 12),
-
                   Text(
-                    "Exams / Events",
+                    t.examsEvents,
                     style: TextStyle(
                       fontWeight: FontWeight.w900,
                       fontSize: 16,
@@ -949,10 +1009,9 @@ class _ScheduleTabState extends State<ScheduleTab> {
                     ),
                   ),
                   const SizedBox(height: 10),
-
                   if (overdue.isNotEmpty) ...[
                     Text(
-                      "Overdue",
+                      t.overdue,
                       style: TextStyle(
                         fontWeight: FontWeight.w900,
                         color: textColor,
@@ -963,13 +1022,14 @@ class _ScheduleTabState extends State<ScheduleTab> {
                       _DatedCard(
                         title: (d.data()['title'] ?? '').toString(),
                         subtitle:
-                            "${_fmtDateTime(d.data()['start'])} → ${_fmtDateTime(d.data()['end'])}"
-                            "${((d.data()['room'] ?? '').toString().trim().isEmpty) ? "" : " · Room: ${(d.data()['room'] ?? '').toString()}"}",
+                            "${_fmtDateTime(d.data()['start'], t)} → ${_fmtDateTime(d.data()['end'], t)}"
+                            "${((d.data()['room'] ?? '').toString().trim().isEmpty) ? "" : t.isArabic ? " · ${t.room}: ${(d.data()['room'] ?? '').toString()}" : " · Room: ${(d.data()['room'] ?? '').toString()}"}",
                         red: true,
                         showCheck: false,
                         checked: false,
                         onCheck: null,
                         showRestore: false,
+                        restoreTooltip: null,
                         onRestore: null,
                         onEdit: () => _showDatedDialog(doc: d),
                         onDelete: () => _delete(d.id),
@@ -978,7 +1038,6 @@ class _ScheduleTabState extends State<ScheduleTab> {
                     ],
                     const SizedBox(height: 12),
                   ],
-
                   Container(
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
@@ -990,7 +1049,7 @@ class _ScheduleTabState extends State<ScheduleTab> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          "Active",
+                          t.active,
                           style: TextStyle(
                             fontWeight: FontWeight.w900,
                             color: textColor,
@@ -999,7 +1058,7 @@ class _ScheduleTabState extends State<ScheduleTab> {
                         const SizedBox(height: 8),
                         if (active.isEmpty)
                           Text(
-                            "No active dated events",
+                            t.noActiveDatedEvents,
                             style: TextStyle(
                               fontWeight: FontWeight.w800,
                               color: textColor,
@@ -1009,13 +1068,14 @@ class _ScheduleTabState extends State<ScheduleTab> {
                           _DatedCard(
                             title: (d.data()['title'] ?? '').toString(),
                             subtitle:
-                                "${_fmtDateTime(d.data()['start'])} → ${_fmtDateTime(d.data()['end'])}"
-                                "${((d.data()['room'] ?? '').toString().trim().isEmpty) ? "" : " · Room: ${(d.data()['room'] ?? '').toString()}"}",
+                                "${_fmtDateTime(d.data()['start'], t)} → ${_fmtDateTime(d.data()['end'], t)}"
+                                "${((d.data()['room'] ?? '').toString().trim().isEmpty) ? "" : t.isArabic ? " · ${t.room}: ${(d.data()['room'] ?? '').toString()}" : " · Room: ${(d.data()['room'] ?? '').toString()}"}",
                             red: false,
                             showCheck: true,
                             checked: false,
                             onCheck: () => _toggleDatedDone(d.id, true),
                             showRestore: false,
+                            restoreTooltip: null,
                             onRestore: null,
                             onEdit: () => _showDatedDialog(doc: d),
                             onDelete: () => _delete(d.id),
@@ -1025,11 +1085,9 @@ class _ScheduleTabState extends State<ScheduleTab> {
                       ],
                     ),
                   ),
-
                   const SizedBox(height: 12),
-
                   Text(
-                    "Completed",
+                    t.completed,
                     style: TextStyle(
                       fontWeight: FontWeight.w900,
                       fontSize: 16,
@@ -1037,27 +1095,26 @@ class _ScheduleTabState extends State<ScheduleTab> {
                     ),
                   ),
                   const SizedBox(height: 8),
-
                   if (completed.isEmpty)
                     Text(
-                      "No completed appointments",
+                      t.noCompletedAppointments,
                       style: TextStyle(
                         fontWeight: FontWeight.w800,
                         color: textColor,
                       ),
                     ),
-
                   for (final d in completed) ...[
                     _DatedCard(
                       title: (d.data()['title'] ?? '').toString(),
                       subtitle:
-                          "${_fmtDateTime(d.data()['start'])} → ${_fmtDateTime(d.data()['end'])}"
-                          "${((d.data()['room'] ?? '').toString().trim().isEmpty) ? "" : " · Room: ${(d.data()['room'] ?? '').toString()}"}",
+                          "${_fmtDateTime(d.data()['start'], t)} → ${_fmtDateTime(d.data()['end'], t)}"
+                          "${((d.data()['room'] ?? '').toString().trim().isEmpty) ? "" : t.isArabic ? " · ${t.room}: ${(d.data()['room'] ?? '').toString()}" : " · Room: ${(d.data()['room'] ?? '').toString()}"}",
                       red: false,
                       showCheck: false,
                       checked: false,
                       onCheck: null,
                       showRestore: true,
+                      restoreTooltip: t.restore,
                       onRestore: () => _restoreDated(context, d),
                       onEdit: () => _showDatedDialog(doc: d),
                       onDelete: () => _delete(d.id),
@@ -1084,6 +1141,7 @@ class _DatedCard extends StatelessWidget {
   final VoidCallback? onCheck;
 
   final bool showRestore;
+  final String? restoreTooltip;
   final VoidCallback? onRestore;
 
   final VoidCallback onEdit;
@@ -1098,6 +1156,7 @@ class _DatedCard extends StatelessWidget {
     required this.checked,
     required this.onCheck,
     required this.showRestore,
+    required this.restoreTooltip,
     required this.onRestore,
     required this.onEdit,
     required this.onDelete,
@@ -1139,11 +1198,12 @@ class _DatedCard extends StatelessWidget {
                     width: 2,
                   ),
                 ),
-                child: checked ? Icon(Icons.check, size: 14, color: textColor) : null,
+                child: checked
+                    ? Icon(Icons.check, size: 14, color: textColor)
+                    : null,
               ),
             ),
           if (showCheck) const SizedBox(width: 10),
-
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1167,14 +1227,12 @@ class _DatedCard extends StatelessWidget {
               ],
             ),
           ),
-
           if (showRestore)
             IconButton(
-              tooltip: "Restore",
+              tooltip: restoreTooltip,
               onPressed: onRestore,
               icon: Icon(Icons.undo, color: textColor),
             ),
-
           IconButton(
             onPressed: onEdit,
             icon: Icon(Icons.edit, color: textColor),

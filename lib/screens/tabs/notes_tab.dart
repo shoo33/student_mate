@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../../theme/app_theme.dart';
+import '../../app_text.dart';
 
 class NotesTab extends StatefulWidget {
   const NotesTab({super.key});
@@ -29,6 +30,7 @@ class _NotesTabState extends State<NotesTab> {
   Future<void> _showAddOrEditNoteDialog({
     QueryDocumentSnapshot<Map<String, dynamic>>? doc,
   }) async {
+    final t = AppText(Localizations.localeOf(context).languageCode);
     final data = doc?.data();
     final titleCtrl = TextEditingController(text: (data?['title'] ?? '').toString());
     final bodyCtrl = TextEditingController(text: (data?['body'] ?? '').toString());
@@ -37,15 +39,15 @@ class _NotesTabState extends State<NotesTab> {
       context: context,
       builder: (ctx) {
         return AlertDialog(
-          title: Text(doc == null ? "Add Note" : "Edit Note"),
+          title: Text(doc == null ? t.addNote : t.editNote),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 TextField(
                   controller: titleCtrl,
-                  decoration: const InputDecoration(
-                    labelText: "Title",
+                  decoration: InputDecoration(
+                    labelText: t.title,
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -53,8 +55,8 @@ class _NotesTabState extends State<NotesTab> {
                   controller: bodyCtrl,
                   minLines: 4,
                   maxLines: 8,
-                  decoration: const InputDecoration(
-                    labelText: "Write your note",
+                  decoration: InputDecoration(
+                    labelText: t.writeYourNote,
                     alignLabelWithHint: true,
                   ),
                 ),
@@ -64,7 +66,7 @@ class _NotesTabState extends State<NotesTab> {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx),
-              child: const Text("Cancel"),
+              child: Text(t.cancel),
             ),
             ElevatedButton(
               style: ElevatedButton.styleFrom(
@@ -84,20 +86,20 @@ class _NotesTabState extends State<NotesTab> {
                     'createdAt': FieldValue.serverTimestamp(),
                     'updatedAt': FieldValue.serverTimestamp(),
                   });
-                  _toast("Note saved");
+                  _toast(t.noteSaved);
                 } else {
                   await _notesRef.doc(doc.id).update({
                     'title': title,
                     'body': body,
                     'updatedAt': FieldValue.serverTimestamp(),
                   });
-                  _toast("Note updated");
+                  _toast(t.noteUpdated);
                 }
 
                 if (!ctx.mounted) return;
                 Navigator.pop(ctx);
               },
-              child: const Text("Save"),
+              child: Text(t.save),
             ),
           ],
         );
@@ -106,8 +108,9 @@ class _NotesTabState extends State<NotesTab> {
   }
 
   Future<void> _deleteNote(String id) async {
+    final t = AppText(Localizations.localeOf(context).languageCode);
     await _notesRef.doc(id).delete();
-    _toast("Note deleted");
+    _toast(t.noteDeleted);
   }
 
   bool _matchesSearch(Map<String, dynamic> note) {
@@ -120,9 +123,9 @@ class _NotesTabState extends State<NotesTab> {
     return title.contains(q) || body.contains(q);
   }
 
-  String _previewBody(String text) {
+  String _previewBody(String text, AppText t) {
     final cleaned = text.trim();
-    if (cleaned.isEmpty) return 'No content';
+    if (cleaned.isEmpty) return t.noContent;
     return cleaned;
   }
 
@@ -134,6 +137,7 @@ class _NotesTabState extends State<NotesTab> {
 
   @override
   Widget build(BuildContext context) {
+    final t = AppText(Localizations.localeOf(context).languageCode);
     final pageTop = AppTheme.pageTop(context);
     final pageBottom = AppTheme.pageBottom(context);
     final cardColor = AppTheme.cardColor(context);
@@ -175,7 +179,7 @@ class _NotesTabState extends State<NotesTab> {
                 padding: const EdgeInsets.fromLTRB(16, 16, 16, 90),
                 children: [
                   Text(
-                    "Notes",
+                    t.notes,
                     style: TextStyle(
                       fontSize: 22,
                       fontWeight: FontWeight.w900,
@@ -183,7 +187,6 @@ class _NotesTabState extends State<NotesTab> {
                     ),
                   ),
                   const SizedBox(height: 12),
-
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
                     decoration: BoxDecoration(
@@ -204,7 +207,7 @@ class _NotesTabState extends State<NotesTab> {
                       ),
                       decoration: InputDecoration(
                         border: InputBorder.none,
-                        hintText: "Search notes",
+                        hintText: t.searchNotes,
                         hintStyle: TextStyle(
                           color: mutedText,
                           fontWeight: FontWeight.w700,
@@ -213,9 +216,7 @@ class _NotesTabState extends State<NotesTab> {
                       ),
                     ),
                   ),
-
                   const SizedBox(height: 14),
-
                   if (allDocs.isEmpty)
                     Container(
                       padding: const EdgeInsets.all(18),
@@ -225,7 +226,7 @@ class _NotesTabState extends State<NotesTab> {
                         border: Border.all(color: AppTheme.dark, width: 2),
                       ),
                       child: Text(
-                        "No notes yet",
+                        t.noNotesYet,
                         style: TextStyle(
                           fontWeight: FontWeight.w800,
                           color: textColor,
@@ -241,7 +242,7 @@ class _NotesTabState extends State<NotesTab> {
                         border: Border.all(color: AppTheme.dark, width: 2),
                       ),
                       child: Text(
-                        "No note found",
+                        t.noNoteFound,
                         style: TextStyle(
                           fontWeight: FontWeight.w800,
                           color: textColor,
@@ -276,7 +277,7 @@ class _NotesTabState extends State<NotesTab> {
                                       crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
                                         Text(
-                                          title.isEmpty ? "Untitled note" : title,
+                                          title.isEmpty ? t.untitledNote : title,
                                           style: TextStyle(
                                             fontWeight: FontWeight.w900,
                                             fontSize: 16,
@@ -287,7 +288,7 @@ class _NotesTabState extends State<NotesTab> {
                                         ),
                                         const SizedBox(height: 6),
                                         Text(
-                                          _previewBody(body),
+                                          _previewBody(body, t),
                                           style: TextStyle(
                                             fontWeight: FontWeight.w700,
                                             height: 1.3,

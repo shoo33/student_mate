@@ -114,11 +114,9 @@ class TasksTab extends StatelessWidget {
       context: context,
       builder: (ctx) {
         return AlertDialog(
-          title: Text(t.isArabic ? "انتهى التاريخ" : "Date expired"),
+          title: Text(t.dateExpired),
           content: Text(
-            t.isArabic
-                ? "تاريخ $typeName انتهى بالفعل.\nعدلي التاريخ أولًا إذا تبين استرجاعه."
-                : "This $typeName date has already passed.\nEdit the date first if you want to restore it.",
+            t.dateExpiredMessage(typeName),
             style: const TextStyle(fontWeight: FontWeight.w800),
           ),
           actions: [
@@ -135,7 +133,7 @@ class TasksTab extends StatelessWidget {
                 Navigator.pop(ctx);
                 onEdit();
               },
-              child: Text(t.isArabic ? "تعديل التاريخ" : "Edit date"),
+              child: Text(t.editDate),
             ),
           ],
         );
@@ -159,29 +157,20 @@ class TasksTab extends StatelessWidget {
         return StatefulBuilder(
           builder: (ctx, setLocal) {
             return AlertDialog(
-              title: Text(
-                docId == null
-                    ? (t.isArabic ? "إضافة مهمة" : "Add Task")
-                    : (t.isArabic ? "تعديل المهمة" : "Edit Task"),
-              ),
+              title: Text(docId == null ? t.addTask : t.editTask),
               content: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   TextField(
                     controller: titleCtrl,
-                    textDirection: TextDirection.auto,
-                    decoration: InputDecoration(
-                      labelText: t.isArabic ? "العنوان" : "Title",
-                    ),
+                    decoration: InputDecoration(labelText: t.title),
                   ),
                   const SizedBox(height: 12),
                   Row(
                     children: [
                       Expanded(
                         child: Text(
-                          due == null
-                              ? (t.isArabic ? "بدون موعد نهائي" : "No deadline")
-                              : _fmtDue(Timestamp.fromDate(due!), t),
+                          due == null ? t.noDeadline : _fmtDue(Timestamp.fromDate(due!), t),
                           style: TextStyle(
                             fontWeight: FontWeight.w900,
                             color: AppTheme.textPrimary(context),
@@ -189,11 +178,10 @@ class TasksTab extends StatelessWidget {
                         ),
                       ),
                       IconButton(
-                        tooltip: t.isArabic ? "اختيار الموعد" : "Pick deadline",
+                        tooltip: t.pickDeadline,
                         icon: const Icon(Icons.calendar_month),
                         onPressed: () async {
-                          final picked =
-                              await _pickDateTime(ctx, due ?? DateTime.now());
+                          final picked = await _pickDateTime(ctx, due ?? DateTime.now());
                           if (picked != null) {
                             setLocal(() => due = picked);
                           }
@@ -224,20 +212,14 @@ class TasksTab extends StatelessWidget {
                         'dueAt': due == null ? null : Timestamp.fromDate(due!),
                         'createdAt': FieldValue.serverTimestamp(),
                       });
-                      _toast(
-                        context,
-                        t.isArabic ? "تم حفظ المهمة" : "Task saved",
-                      );
+                      _toast(context, t.taskSaved);
                     } else {
                       await _tasksRef.doc(docId).update({
                         'title': title,
                         'dueAt': due == null ? null : Timestamp.fromDate(due!),
                         'updatedAt': FieldValue.serverTimestamp(),
                       });
-                      _toast(
-                        context,
-                        t.isArabic ? "تم تحديث المهمة" : "Task updated",
-                      );
+                      _toast(context, t.taskUpdated);
                     }
 
                     if (ctx.mounted) Navigator.pop(ctx);
@@ -259,19 +241,15 @@ class TasksTab extends StatelessWidget {
       'done': done,
       'updatedAt': FieldValue.serverTimestamp(),
     });
-
     if (done) {
-      _toast(
-        context,
-        t.isArabic ? "تم وضعها كمكتملة" : "Marked as completed",
-      );
+      _toast(context, t.markedCompleted);
     }
   }
 
   Future<void> _delete(BuildContext context, String id) async {
     final t = AppText(Localizations.localeOf(context).languageCode);
     await _tasksRef.doc(id).delete();
-    _toast(context, t.isArabic ? "تم الحذف" : "Deleted");
+    _toast(context, t.taskDeleted);
   }
 
   Future<void> _restoreTask(
@@ -300,7 +278,7 @@ class TasksTab extends StatelessWidget {
       'done': false,
       'updatedAt': FieldValue.serverTimestamp(),
     });
-    _toast(context, t.isArabic ? "تم الاسترجاع" : "Restored");
+    _toast(context, t.taskRestored);
   }
 
   @override
@@ -342,15 +320,11 @@ class TasksTab extends StatelessWidget {
 
               final docs = snapshot.data?.docs ?? [];
 
-              final active =
-                  docs.where((d) => (d.data()['done'] ?? false) != true).toList();
-              final completed =
-                  docs.where((d) => (d.data()['done'] ?? false) == true).toList();
+              final active = docs.where((d) => (d.data()['done'] ?? false) != true).toList();
+              final completed = docs.where((d) => (d.data()['done'] ?? false) == true).toList();
 
-              final withDue =
-                  active.where((d) => d.data()['dueAt'] is Timestamp).toList();
-              final noDue =
-                  active.where((d) => d.data()['dueAt'] is! Timestamp).toList();
+              final withDue = active.where((d) => d.data()['dueAt'] is Timestamp).toList();
+              final noDue = active.where((d) => d.data()['dueAt'] is! Timestamp).toList();
 
               withDue.sort((a, b) {
                 final ad = (a.data()['dueAt'] as Timestamp).toDate();
@@ -368,8 +342,7 @@ class TasksTab extends StatelessWidget {
               });
 
               final overdue = withDue.where((d) => _isOverdue(d.data())).toList();
-              final upcoming =
-                  withDue.where((d) => !_isOverdue(d.data())).toList();
+              final upcoming = withDue.where((d) => !_isOverdue(d.data())).toList();
 
               completed.sort((a, b) {
                 final ad = a.data()['updatedAt'];
@@ -394,7 +367,7 @@ class TasksTab extends StatelessWidget {
                   const SizedBox(height: 12),
                   if (overdue.isNotEmpty) ...[
                     Text(
-                      t.isArabic ? "متأخرة" : "Overdue",
+                      t.overdue,
                       style: TextStyle(
                         fontWeight: FontWeight.w900,
                         fontSize: 16,
@@ -422,7 +395,7 @@ class TasksTab extends StatelessWidget {
                     const SizedBox(height: 12),
                   ],
                   Text(
-                    t.isArabic ? "نشطة" : "Active",
+                    t.active,
                     style: TextStyle(
                       fontWeight: FontWeight.w900,
                       fontSize: 16,
@@ -468,7 +441,7 @@ class TasksTab extends StatelessWidget {
                   ],
                   const SizedBox(height: 16),
                   Text(
-                    t.isArabic ? "مكتملة" : "Completed",
+                    t.completed,
                     style: TextStyle(
                       fontWeight: FontWeight.w900,
                       fontSize: 16,
@@ -478,9 +451,7 @@ class TasksTab extends StatelessWidget {
                   const SizedBox(height: 8),
                   if (completed.isEmpty)
                     Text(
-                      t.isArabic
-                          ? "لا توجد مهام مكتملة"
-                          : "No completed tasks",
+                      t.noCompletedTasks,
                       style: TextStyle(
                         fontWeight: FontWeight.w700,
                         color: mutedText,
@@ -495,7 +466,7 @@ class TasksTab extends StatelessWidget {
                       rightColor: mutedText,
                       showCheck: false,
                       showRestore: true,
-                      restoreTooltip: t.isArabic ? "استرجاع" : "Restore",
+                      restoreTooltip: t.restore,
                       onRestore: () => _restoreTask(context, d),
                       onEdit: () => _addOrEditDialog(
                         context,
@@ -586,7 +557,6 @@ class _TaskCard extends StatelessWidget {
           Expanded(
             child: Text(
               title,
-              textDirection: TextDirection.auto,
               style: TextStyle(
                 fontWeight: FontWeight.w900,
                 color: textColor,
