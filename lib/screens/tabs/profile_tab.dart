@@ -3,6 +3,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../../theme/app_theme.dart';
+import '../../services/notification_service.dart';
+import '../../app_text.dart';
 import '../login_screen.dart';
 
 class ProfileTab extends StatefulWidget {
@@ -37,6 +39,15 @@ class _ProfileTabState extends State<ProfileTab> {
         'tasksHomeLimit': 3,
         'showAllWeeklyOnHome': false,
         'showAllDatedOnHome': false,
+        'reminderMinutes': 30,
+        'languageCode': 'en',
+        'customQuotes': const [
+          'Start with one small step today.',
+          'Every finished task moves you forward.',
+          'Organize today, relax tomorrow.',
+          'Small consistency creates big results.',
+          'One task at a time.',
+        ],
         'updatedAt': FieldValue.serverTimestamp(),
         'createdAt': FieldValue.serverTimestamp(),
       });
@@ -50,6 +61,13 @@ class _ProfileTabState extends State<ProfileTab> {
     }, SetOptions(merge: true));
   }
 
+  void _toast(String text) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(text)),
+    );
+  }
+
   Future<void> _logout(BuildContext context) async {
     await FirebaseAuth.instance.signOut();
     if (!context.mounted) return;
@@ -61,90 +79,26 @@ class _ProfileTabState extends State<ProfileTab> {
     );
   }
 
-  Future<void> _changePasswordDialog(BuildContext context, String email) async {
-    await showDialog(
-      context: context,
-      builder: (ctx) {
-        return AlertDialog(
-          title: const Text("Change password"),
-          content: Text(
-            "A password reset email will be sent to:\n$email",
-            style: const TextStyle(fontWeight: FontWeight.w800),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text("Cancel"),
-            ),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppTheme.rose,
-                foregroundColor: Colors.white,
-              ),
-              onPressed: () async {
-                await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
-                if (!ctx.mounted) return;
-                Navigator.pop(ctx);
-                if (!mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text("Password reset email sent.")),
-                );
-              },
-              child: const Text("Send"),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  Future<void> _contactUsDialog(BuildContext context) async {
-    await showDialog(
-      context: context,
-      builder: (ctx) {
-        return AlertDialog(
-          title: const Text("Contact us"),
-          content: const Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                "Student Mate support",
-                style: TextStyle(fontWeight: FontWeight.w900),
-              ),
-              SizedBox(height: 8),
-              Text("Email: support@studentmate.app"),
-              SizedBox(height: 6),
-              Text("You can replace this later with your real team email."),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text("Close"),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  Future<void> _editNameDialog(BuildContext context, String currentName) async {
+  Future<void> _editNameDialog(
+    BuildContext context,
+    String currentName,
+    AppText t,
+  ) async {
     final controller = TextEditingController(text: currentName);
 
     await showDialog(
       context: context,
       builder: (ctx) {
         return AlertDialog(
-          title: const Text("Edit name"),
+          title: Text(t.editNameTitle),
           content: TextField(
             controller: controller,
-            decoration: const InputDecoration(labelText: "Name"),
+            decoration: InputDecoration(labelText: t.name),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx),
-              child: const Text("Cancel"),
+              child: Text(t.cancel),
             ),
             ElevatedButton(
               style: ElevatedButton.styleFrom(
@@ -162,13 +116,9 @@ class _ProfileTabState extends State<ProfileTab> {
 
                 if (!ctx.mounted) return;
                 Navigator.pop(ctx);
-
-                if (!mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text("Name updated.")),
-                );
+                _toast(t.nameUpdated);
               },
-              child: const Text("Save"),
+              child: Text(t.save),
             ),
           ],
         );
@@ -176,32 +126,39 @@ class _ProfileTabState extends State<ProfileTab> {
     );
   }
 
-  Future<void> _editEmailDialog(BuildContext context, String currentEmail) async {
+  Future<void> _editEmailDialog(
+    BuildContext context,
+    String currentEmail,
+    AppText t,
+  ) async {
     final controller = TextEditingController(text: currentEmail);
 
     await showDialog(
       context: context,
       builder: (ctx) {
         return AlertDialog(
-          title: const Text("Edit email"),
+          title: Text(t.editEmailTitle),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               TextField(
                 controller: controller,
-                decoration: const InputDecoration(labelText: "Email"),
+                decoration: InputDecoration(labelText: t.email),
               ),
               const SizedBox(height: 10),
-              const Text(
-                "If Firebase asks for recent login, just log out and log in again, then retry.",
-                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+              Text(
+                t.verificationEmailHint,
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
             ],
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx),
-              child: const Text("Cancel"),
+              child: Text(t.cancel),
             ),
             ElevatedButton(
               style: ElevatedButton.styleFrom(
@@ -225,21 +182,12 @@ class _ProfileTabState extends State<ProfileTab> {
 
                   if (!ctx.mounted) return;
                   Navigator.pop(ctx);
-
-                  if (!mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text("Verification email sent to update your email."),
-                    ),
-                  );
-                } catch (e) {
-                  if (!ctx.mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text("Could not update email: $e")),
-                  );
+                  _toast(t.emailCheck);
+                } catch (_) {
+                  _toast(t.emailUpdateError);
                 }
               },
-              child: const Text("Save"),
+              child: Text(t.save),
             ),
           ],
         );
@@ -247,40 +195,344 @@ class _ProfileTabState extends State<ProfileTab> {
     );
   }
 
-  Widget _sectionTitle(String text) {
+  Future<void> _changePasswordDialog(
+    BuildContext context,
+    String email,
+    AppText t,
+  ) async {
+    final currentCtrl = TextEditingController();
+    final newCtrl = TextEditingController();
+    final confirmCtrl = TextEditingController();
+
+    bool obscure1 = true;
+    bool obscure2 = true;
+    bool obscure3 = true;
+
+    await showDialog(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setLocal) {
+            return AlertDialog(
+              title: Text(t.changePasswordTitle),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: currentCtrl,
+                      obscureText: obscure1,
+                      decoration: InputDecoration(
+                        labelText: t.currentPassword,
+                        suffixIcon: IconButton(
+                          onPressed: () => setLocal(() => obscure1 = !obscure1),
+                          icon: Icon(
+                            obscure1 ? Icons.visibility_off : Icons.visibility,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: newCtrl,
+                      obscureText: obscure2,
+                      decoration: InputDecoration(
+                        labelText: t.newPassword,
+                        suffixIcon: IconButton(
+                          onPressed: () => setLocal(() => obscure2 = !obscure2),
+                          icon: Icon(
+                            obscure2 ? Icons.visibility_off : Icons.visibility,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: confirmCtrl,
+                      obscureText: obscure3,
+                      decoration: InputDecoration(
+                        labelText: t.confirmNewPassword,
+                        suffixIcon: IconButton(
+                          onPressed: () => setLocal(() => obscure3 = !obscure3),
+                          icon: Icon(
+                            obscure3 ? Icons.visibility_off : Icons.visibility,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: Text(t.cancel),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.rose,
+                    foregroundColor: Colors.white,
+                  ),
+                  onPressed: () async {
+                    final currentPass = currentCtrl.text.trim();
+                    final newPass = newCtrl.text.trim();
+                    final confirmPass = confirmCtrl.text.trim();
+
+                    if (currentPass.isEmpty ||
+                        newPass.isEmpty ||
+                        confirmPass.isEmpty) {
+                      _toast(t.fillAllFields);
+                      return;
+                    }
+
+                    if (newPass.length < 6) {
+                      _toast(t.newPasswordMin);
+                      return;
+                    }
+
+                    if (newPass != confirmPass) {
+                      _toast(t.passwordsNoMatch);
+                      return;
+                    }
+
+                    try {
+                      final user = FirebaseAuth.instance.currentUser;
+                      if (user == null) return;
+
+                      final credential = EmailAuthProvider.credential(
+                        email: email,
+                        password: currentPass,
+                      );
+
+                      await user.reauthenticateWithCredential(credential);
+                      await user.updatePassword(newPass);
+
+                      if (!ctx.mounted) return;
+                      Navigator.pop(ctx);
+                      _toast(t.passwordUpdated);
+                    } catch (_) {
+                      _toast(t.passwordUpdateError);
+                    }
+                  },
+                  child: Text(t.save),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _contactUsDialog(BuildContext context, AppText t) async {
+    await showDialog(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: Text(t.contactTitle),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                t.supportTitle,
+                style: const TextStyle(fontWeight: FontWeight.w900),
+              ),
+              const SizedBox(height: 8),
+              const Text("Email: support@studentmate.app"),
+              const SizedBox(height: 6),
+              Text(t.supportNote),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: Text(t.close),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _pickLanguageDialog(
+    BuildContext context,
+    String current,
+    AppText t,
+  ) async {
+    await showDialog(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: Text(t.language),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              RadioListTile<String>(
+                value: 'en',
+                groupValue: current,
+                title: Text(t.languageEnglish),
+                onChanged: (v) async {
+                  if (v == null) return;
+                  await _updateSetting('languageCode', v);
+                  if (!ctx.mounted) return;
+                  Navigator.pop(ctx);
+                  _toast(t.languageUpdated);
+                },
+              ),
+              RadioListTile<String>(
+                value: 'ar',
+                groupValue: current,
+                title: Text(t.languageArabic),
+                onChanged: (v) async {
+                  if (v == null) return;
+                  await _updateSetting('languageCode', v);
+                  if (!ctx.mounted) return;
+                  Navigator.pop(ctx);
+                  _toast(t.languageUpdated);
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _editQuotesDialog(
+    BuildContext context,
+    List<String> currentQuotes,
+    AppText t,
+  ) async {
+    final controller = TextEditingController(
+      text: currentQuotes.join('\n'),
+    );
+
+    await showDialog(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: Text(t.customQuotes),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: TextField(
+              controller: controller,
+              minLines: 8,
+              maxLines: 12,
+              decoration: InputDecoration(
+                hintText: t.quoteDialogHint,
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: Text(t.cancel),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.rose,
+                foregroundColor: Colors.white,
+              ),
+              onPressed: () async {
+                final lines = controller.text
+                    .split('\n')
+                    .map((e) => e.trim())
+                    .where((e) => e.isNotEmpty)
+                    .toList();
+
+                await _updateSetting(
+                  'customQuotes',
+                  lines.isEmpty ? t.defaultQuotes : lines,
+                );
+
+                if (!ctx.mounted) return;
+                Navigator.pop(ctx);
+                _toast(t.quotesUpdated);
+              },
+              child: Text(t.save),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _pickReminderMinutes(
+    BuildContext context,
+    int current,
+    AppText t,
+  ) async {
+    final items = <int>[10, 30, 60, 1440];
+
+    await showDialog(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: Text(t.reminderDialogTitle),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: items.map((m) {
+              return RadioListTile<int>(
+                value: m,
+                groupValue: current,
+                activeColor: AppTheme.rose,
+                title: Text(
+                  t.reminderText(m),
+                  style: const TextStyle(fontWeight: FontWeight.w800),
+                ),
+                onChanged: (value) async {
+                  if (value == null) return;
+                  await _updateSetting('reminderMinutes', value);
+                  await NotificationService.instance.requestPermissions();
+                  if (!ctx.mounted) return;
+                  Navigator.pop(ctx);
+                },
+              );
+            }).toList(),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _sectionTitle(BuildContext context, String text) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: Text(
         text,
-        style: const TextStyle(
+        style: TextStyle(
           fontSize: 18,
           fontWeight: FontWeight.w900,
-          color: AppTheme.dark,
+          color: AppTheme.textPrimary(context),
         ),
       ),
     );
   }
 
-  Widget _settingsCard({required Widget child}) {
+  Widget _settingsCard(BuildContext context, {required Widget child}) {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFFF2C9BF),
+        color: AppTheme.softCardColor(context),
         borderRadius: BorderRadius.circular(18),
       ),
       child: child,
     );
   }
 
-  Widget _divider() {
+  Widget _divider(BuildContext context) {
     return Container(
       height: 1,
       margin: const EdgeInsets.symmetric(vertical: 6),
-      color: Colors.white.withValues(alpha: 0.65),
+      color: AppTheme.isDark(context)
+          ? Colors.white.withValues(alpha: 0.10)
+          : Colors.white.withValues(alpha: 0.65),
     );
   }
 
-  Widget _rowButton({
+  Widget _rowButton(
+    BuildContext context, {
     required String title,
     Color? color,
     Widget? trailing,
@@ -299,7 +551,7 @@ class _ProfileTabState extends State<ProfileTab> {
                 style: TextStyle(
                   fontWeight: FontWeight.w800,
                   fontSize: 16,
-                  color: color ?? AppTheme.dark,
+                  color: color ?? AppTheme.textPrimary(context),
                 ),
               ),
             ),
@@ -310,7 +562,8 @@ class _ProfileTabState extends State<ProfileTab> {
     );
   }
 
-  Widget _stepperRow({
+  Widget _stepperRow(
+    BuildContext context, {
     required String title,
     required int value,
     required int min,
@@ -322,10 +575,10 @@ class _ProfileTabState extends State<ProfileTab> {
         Expanded(
           child: Text(
             title,
-            style: const TextStyle(
+            style: TextStyle(
               fontWeight: FontWeight.w800,
               fontSize: 15,
-              color: AppTheme.dark,
+              color: AppTheme.textPrimary(context),
             ),
           ),
         ),
@@ -335,7 +588,11 @@ class _ProfileTabState extends State<ProfileTab> {
         ),
         Text(
           "$value",
-          style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
+          style: TextStyle(
+            fontWeight: FontWeight.w900,
+            fontSize: 16,
+            color: AppTheme.textPrimary(context),
+          ),
         ),
         IconButton(
           onPressed: value < max ? () => onChanged(value + 1) : null,
@@ -354,11 +611,14 @@ class _ProfileTabState extends State<ProfileTab> {
       future: _ensureSettingsExists(),
       builder: (context, _) {
         return Container(
-          decoration: const BoxDecoration(
+          decoration: BoxDecoration(
             gradient: LinearGradient(
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
-              colors: [AppTheme.bgTop, AppTheme.bgBottom],
+              colors: [
+                AppTheme.pageTop(context),
+                AppTheme.pageBottom(context),
+              ],
             ),
           ),
           child: SafeArea(
@@ -373,6 +633,7 @@ class _ProfileTabState extends State<ProfileTab> {
                   stream: _settingsDoc.snapshots(),
                   builder: (context, settingsSnap) {
                     final s = settingsSnap.data?.data() ?? {};
+                    final t = AppText((s['languageCode'] ?? 'en').toString());
 
                     final notificationsEnabled =
                         (s['notificationsEnabled'] ?? true) == true;
@@ -386,32 +647,39 @@ class _ProfileTabState extends State<ProfileTab> {
                         (s['showAllWeeklyOnHome'] ?? false) == true;
                     final showAllDatedOnHome =
                         (s['showAllDatedOnHome'] ?? false) == true;
+                    final reminderMinutes = (s['reminderMinutes'] ?? 30) as int;
+                    final languageCode = (s['languageCode'] ?? 'en').toString();
+
+                    final customQuotes = (s['customQuotes'] is List)
+                        ? (s['customQuotes'] as List)
+                            .map((e) => e.toString())
+                            .toList()
+                        : t.defaultQuotes;
 
                     return ListView(
                       padding: const EdgeInsets.fromLTRB(16, 10, 16, 90),
                       children: [
                         Row(
                           children: [
-                            const Text(
+                            Text(
                               "⋯",
                               style: TextStyle(
                                 fontSize: 28,
                                 fontWeight: FontWeight.w900,
-                                color: AppTheme.dark,
+                                color: AppTheme.textPrimary(context),
                               ),
                             ),
                             const Spacer(),
                           ],
                         ),
                         const SizedBox(height: 8),
-
                         Container(
                           padding: const EdgeInsets.symmetric(
                             horizontal: 14,
                             vertical: 10,
                           ),
                           decoration: BoxDecoration(
-                            color: const Color(0xFFF8F1DE),
+                            color: AppTheme.profileHeaderColor(context),
                             borderRadius: BorderRadius.circular(18),
                             border: Border.all(color: AppTheme.dark, width: 2),
                           ),
@@ -423,11 +691,14 @@ class _ProfileTabState extends State<ProfileTab> {
                                 decoration: BoxDecoration(
                                   shape: BoxShape.circle,
                                   border: Border.all(
-                                    color: AppTheme.dark,
+                                    color: Colors.white.withValues(alpha: 0.9),
                                     width: 2,
                                   ),
                                 ),
-                                child: const Icon(Icons.person_outline),
+                                child: const Icon(
+                                  Icons.person_outline,
+                                  color: Colors.white,
+                                ),
                               ),
                               const SizedBox(width: 10),
                               Expanded(
@@ -439,6 +710,7 @@ class _ProfileTabState extends State<ProfileTab> {
                                       style: const TextStyle(
                                         fontWeight: FontWeight.w900,
                                         fontSize: 18,
+                                        color: Colors.white,
                                       ),
                                     ),
                                     const SizedBox(height: 2),
@@ -447,6 +719,7 @@ class _ProfileTabState extends State<ProfileTab> {
                                       style: const TextStyle(
                                         fontWeight: FontWeight.w700,
                                         fontSize: 13,
+                                        color: Colors.white,
                                       ),
                                       overflow: TextOverflow.ellipsis,
                                     ),
@@ -456,173 +729,244 @@ class _ProfileTabState extends State<ProfileTab> {
                             ],
                           ),
                         ),
-
                         const SizedBox(height: 12),
-
                         _settingsCard(
+                          context,
                           child: Column(
                             children: [
                               _rowButton(
-                                title: "Edit name",
-                                trailing: const Icon(Icons.edit_outlined),
-                                onTap: () => _editNameDialog(context, name),
+                                context,
+                                title: t.editName,
+                                trailing: Icon(
+                                  Icons.edit_outlined,
+                                  color: AppTheme.textPrimary(context),
+                                ),
+                                onTap: () => _editNameDialog(context, name, t),
                               ),
-                              _divider(),
+                              _divider(context),
                               _rowButton(
-                                title: "Edit email",
-                                trailing: const Icon(Icons.alternate_email),
-                                onTap: () => _editEmailDialog(context, email),
+                                context,
+                                title: t.editEmail,
+                                trailing: Icon(
+                                  Icons.alternate_email,
+                                  color: AppTheme.textPrimary(context),
+                                ),
+                                onTap: () => _editEmailDialog(context, email, t),
                               ),
                             ],
                           ),
                         ),
-
                         const SizedBox(height: 18),
-                        _sectionTitle("Settings"),
-
+                        _sectionTitle(context, t.settings),
                         _settingsCard(
+                          context,
                           child: Column(
                             children: [
                               _rowButton(
-                                title: "Notifications",
-                                trailing: Icon(
-                                  Icons.arrow_forward,
-                                  color: AppTheme.beigeBtn,
+                                context,
+                                title: t.language,
+                                trailing: Text(
+                                  languageCode == 'ar'
+                                      ? t.languageArabic
+                                      : t.languageEnglish,
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w900,
+                                    color: AppTheme.textPrimary(context),
+                                  ),
                                 ),
-                                onTap: () {},
+                                onTap: () => _pickLanguageDialog(
+                                  context,
+                                  languageCode,
+                                  t,
+                                ),
                               ),
-                              _divider(),
+                              _divider(context),
                               SwitchListTile(
                                 contentPadding: EdgeInsets.zero,
-                                title: const Text(
-                                  "Quotes",
+                                title: Text(
+                                  t.quotes,
                                   style: TextStyle(
                                     fontWeight: FontWeight.w800,
                                     fontSize: 16,
+                                    color: AppTheme.textPrimary(context),
                                   ),
                                 ),
                                 value: quotesEnabled,
                                 onChanged: (v) => _updateSetting('quotesEnabled', v),
-                                activeColor: AppTheme.rose,
                               ),
-                              _divider(),
+                              if (quotesEnabled) ...[
+                                _divider(context),
+                                _rowButton(
+                                  context,
+                                  title: t.customQuotes,
+                                  trailing: Text(
+                                    "${customQuotes.length}",
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w900,
+                                      color: AppTheme.textPrimary(context),
+                                    ),
+                                  ),
+                                  onTap: () => _editQuotesDialog(
+                                    context,
+                                    customQuotes,
+                                    t,
+                                  ),
+                                ),
+                              ],
+                              _divider(context),
                               SwitchListTile(
                                 contentPadding: EdgeInsets.zero,
-                                title: const Text(
-                                  "Enable reminders",
+                                title: Text(
+                                  t.enableReminders,
                                   style: TextStyle(
                                     fontWeight: FontWeight.w800,
                                     fontSize: 16,
+                                    color: AppTheme.textPrimary(context),
                                   ),
                                 ),
                                 value: notificationsEnabled,
-                                onChanged: (v) =>
-                                    _updateSetting('notificationsEnabled', v),
-                                activeColor: AppTheme.rose,
+                                onChanged: (v) async {
+                                  await _updateSetting('notificationsEnabled', v);
+                                  if (v) {
+                                    await NotificationService.instance
+                                        .requestPermissions();
+                                  }
+                                },
                               ),
-                              _divider(),
+                              if (notificationsEnabled) ...[
+                                _divider(context),
+                                _rowButton(
+                                  context,
+                                  title: t.reminderTime,
+                                  trailing: Text(
+                                    t.reminderText(reminderMinutes),
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w900,
+                                      color: AppTheme.textPrimary(context),
+                                    ),
+                                  ),
+                                  onTap: () => _pickReminderMinutes(
+                                    context,
+                                    reminderMinutes,
+                                    t,
+                                  ),
+                                ),
+                              ],
+                              _divider(context),
                               SwitchListTile(
                                 contentPadding: EdgeInsets.zero,
-                                title: const Text(
-                                  "Dark mode",
+                                title: Text(
+                                  t.darkMode,
                                   style: TextStyle(
                                     fontWeight: FontWeight.w800,
                                     fontSize: 16,
+                                    color: AppTheme.textPrimary(context),
                                   ),
                                 ),
                                 value: darkMode,
                                 onChanged: (v) => _updateSetting('darkMode', v),
-                                activeColor: AppTheme.rose,
                               ),
-                              _divider(),
+                              _divider(context),
                               _rowButton(
-                                title: "Change password",
-                                onTap: () => _changePasswordDialog(context, email),
+                                context,
+                                title: t.changePassword,
+                                onTap: () => _changePasswordDialog(context, email, t),
                               ),
-                              _divider(),
+                              _divider(context),
                               _rowButton(
-                                title: "Contact us",
-                                onTap: () => _contactUsDialog(context),
+                                context,
+                                title: t.contactUs,
+                                onTap: () => _contactUsDialog(context, t),
                               ),
-                              _divider(),
+                              _divider(context),
                               _rowButton(
-                                title: "Log out",
+                                context,
+                                title: t.logOut,
                                 color: Colors.red.shade700,
                                 onTap: () => _logout(context),
                               ),
                             ],
                           ),
                         ),
-
                         const SizedBox(height: 16),
-
                         _settingsCard(
+                          context,
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Text(
-                                "Home display",
+                              Text(
+                                t.homeDisplay,
                                 style: TextStyle(
                                   fontWeight: FontWeight.w900,
                                   fontSize: 17,
+                                  color: AppTheme.textPrimary(context),
                                 ),
                               ),
                               const SizedBox(height: 10),
                               _stepperRow(
-                                title: "Weekly on home",
+                                context,
+                                title: t.weeklyOnHome,
                                 value: weeklyHomeLimit,
                                 min: 1,
                                 max: 10,
-                                onChanged: (v) =>
-                                    _updateSetting('weeklyHomeLimit', v),
+                                onChanged: (v) => _updateSetting(
+                                  'weeklyHomeLimit',
+                                  v,
+                                ),
                               ),
-                              _divider(),
+                              _divider(context),
                               _stepperRow(
-                                title: "Appointments on home",
+                                context,
+                                title: t.appointmentsOnHome,
                                 value: appointmentsHomeLimit,
                                 min: 1,
                                 max: 10,
-                                onChanged: (v) =>
-                                    _updateSetting('appointmentsHomeLimit', v),
+                                onChanged: (v) => _updateSetting(
+                                  'appointmentsHomeLimit',
+                                  v,
+                                ),
                               ),
-                              _divider(),
+                              _divider(context),
                               _stepperRow(
-                                title: "Tasks on home",
+                                context,
+                                title: t.tasksOnHome,
                                 value: tasksHomeLimit,
                                 min: 1,
                                 max: 10,
-                                onChanged: (v) =>
-                                    _updateSetting('tasksHomeLimit', v),
+                                onChanged: (v) => _updateSetting(
+                                  'tasksHomeLimit',
+                                  v,
+                                ),
                               ),
-                              _divider(),
+                              _divider(context),
                               SwitchListTile(
                                 contentPadding: EdgeInsets.zero,
-                                title: const Text(
-                                  "Show all weekly classes on home",
+                                title: Text(
+                                  t.showAllWeeklyOnHome,
                                   style: TextStyle(
                                     fontWeight: FontWeight.w800,
                                     fontSize: 15,
+                                    color: AppTheme.textPrimary(context),
                                   ),
                                 ),
                                 value: showAllWeeklyOnHome,
                                 onChanged: (v) =>
                                     _updateSetting('showAllWeeklyOnHome', v),
-                                activeColor: AppTheme.rose,
                               ),
-                              _divider(),
+                              _divider(context),
                               SwitchListTile(
                                 contentPadding: EdgeInsets.zero,
-                                title: const Text(
-                                  "Show all dated appointments on home",
+                                title: Text(
+                                  t.showAllDatedOnHome,
                                   style: TextStyle(
                                     fontWeight: FontWeight.w800,
                                     fontSize: 15,
+                                    color: AppTheme.textPrimary(context),
                                   ),
                                 ),
                                 value: showAllDatedOnHome,
                                 onChanged: (v) =>
                                     _updateSetting('showAllDatedOnHome', v),
-                                activeColor: AppTheme.rose,
                               ),
                             ],
                           ),

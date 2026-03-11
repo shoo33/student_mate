@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../../theme/app_theme.dart';
+import '../../services/notification_service.dart';
 
 class ScheduleTab extends StatefulWidget {
   const ScheduleTab({super.key});
@@ -16,6 +17,19 @@ class _ScheduleTabState extends State<ScheduleTab> {
 
   CollectionReference<Map<String, dynamic>> get ref =>
       FirebaseFirestore.instance.collection('users').doc(uid).collection('schedules');
+
+  DocumentReference<Map<String, dynamic>> get _settingsDoc =>
+      FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .collection('settings')
+          .doc('app');
+
+  void _toast(String text) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(text)),
+    );
+  }
 
   String _dayName(int d) {
     const names = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -60,6 +74,47 @@ class _ScheduleTabState extends State<ScheduleTab> {
   bool _datePassed(Timestamp? ts) {
     if (ts == null) return false;
     return ts.toDate().isBefore(DateTime.now());
+  }
+
+  int _notifIdFromDocId(String docId) {
+    return docId.hashCode & 0x7fffffff;
+  }
+
+  Future<Map<String, dynamic>> _settingsData() async {
+    final snap = await _settingsDoc.get();
+    return snap.data() ?? {};
+  }
+
+  Future<bool> _notificationsEnabled() async {
+    final data = await _settingsData();
+    return (data['notificationsEnabled'] ?? true) == true;
+  }
+
+  Future<int> _reminderMinutes() async {
+    final data = await _settingsData();
+    return (data['reminderMinutes'] ?? 30) as int;
+  }
+
+  Future<void> _scheduleReminderForDoc({
+    required String docId,
+    required String title,
+    required DateTime start,
+  }) async {
+    if (!await _notificationsEnabled()) return;
+
+    final reminderMinutes = await _reminderMinutes();
+
+    await NotificationService.instance.scheduleAppointmentReminder(
+      id: _notifIdFromDocId(docId),
+      title: title,
+      eventStart: start,
+      reminderMinutes: reminderMinutes,
+      body: title,
+    );
+  }
+
+  Future<void> _cancelReminderForDoc(String docId) async {
+    await NotificationService.instance.cancelById(_notifIdFromDocId(docId));
   }
 
   Future<DateTime?> _pickDateTime(BuildContext context, DateTime initial) async {
@@ -330,6 +385,7 @@ class _ScheduleTabState extends State<ScheduleTab> {
                         'endMin': endMin,
                         'createdAt': FieldValue.serverTimestamp(),
                       });
+                      _toast("Weekly class saved");
                     } else {
                       final title = eTitle.text.trim();
                       if (title.isEmpty) return;
@@ -342,7 +398,7 @@ class _ScheduleTabState extends State<ScheduleTab> {
                         end = tmp;
                       }
 
-                      await ref.add({
+                      final doc = await ref.add({
                         'type': 'dated',
                         'title': title,
                         'room': eRoom.text.trim(),
@@ -351,6 +407,13 @@ class _ScheduleTabState extends State<ScheduleTab> {
                         'done': false,
                         'createdAt': FieldValue.serverTimestamp(),
                       });
+
+                      await _scheduleReminderForDoc(
+                        docId: doc.id,
+                        title: title,
+                        start: start,
+                      );
+                      _toast("Appointment saved");
                     }
 
                     if (ctx.mounted) Navigator.pop(ctx);
@@ -494,8 +557,10 @@ class _ScheduleTabState extends State<ScheduleTab> {
 
                     if (doc == null) {
                       await ref.add(payload);
+                      _toast("Weekly class saved");
                     } else {
                       await ref.doc(doc.id).update(payload);
+                      _toast("Weekly class updated");
                     }
 
                     if (ctx.mounted) Navigator.pop(ctx);
@@ -612,12 +677,26 @@ class _ScheduleTabState extends State<ScheduleTab> {
                     };
 
                     if (doc == null) {
-                      await ref.add({
+                      final created = await ref.add({
                         ...payload,
                         'done': false,
                       });
+
+                      await _scheduleReminderForDoc(
+                        docId: created.id,
+                        title: title,
+                        start: start,
+                      );
+                      _toast("Appointment saved");
                     } else {
                       await ref.doc(doc.id).update(payload);
+                      await _cancelReminderForDoc(doc.id);
+                      await _scheduleReminderForDoc(
+                        docId: doc.id,
+                        title: title,
+                        start: start,
+                      );
+                      _toast("Appointment updated");
                     }
 
                     if (ctx.mounted) Navigator.pop(ctx);
@@ -633,7 +712,9 @@ class _ScheduleTabState extends State<ScheduleTab> {
   }
 
   Future<void> _delete(String id) async {
+    await _cancelReminderForDoc(id);
     await ref.doc(id).delete();
+    _toast("Deleted");
   }
 
   Future<void> _toggleDatedDone(String id, bool done) async {
@@ -641,6 +722,11 @@ class _ScheduleTabState extends State<ScheduleTab> {
       'done': done,
       'updatedAt': FieldValue.serverTimestamp(),
     });
+
+    if (done) {
+      await _cancelReminderForDoc(id);
+      _toast("Marked as completed");
+    }
   }
 
   Future<void> _restoreDated(
@@ -660,10 +746,25 @@ class _ScheduleTabState extends State<ScheduleTab> {
     }
 
     await _toggleDatedDone(doc.id, false);
+
+    final start = data['start'];
+    if (start is Timestamp) {
+      await _scheduleReminderForDoc(
+        docId: doc.id,
+        title: (data['title'] ?? '').toString(),
+        start: start.toDate(),
+      );
+    }
+    _toast("Restored");
   }
 
   @override
   Widget build(BuildContext context) {
+    final pageTop = AppTheme.pageTop(context);
+    final pageBottom = AppTheme.pageBottom(context);
+    final cardColor = AppTheme.cardColor(context);
+    final textColor = AppTheme.textPrimary(context);
+
     return Scaffold(
       backgroundColor: Colors.transparent,
       floatingActionButton: FloatingActionButton(
@@ -673,11 +774,11 @@ class _ScheduleTabState extends State<ScheduleTab> {
         child: const Icon(Icons.add),
       ),
       body: Container(
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [AppTheme.bgTop, AppTheme.bgBottom],
+            colors: [pageTop, pageBottom],
           ),
         ),
         child: SafeArea(
@@ -685,7 +786,9 @@ class _ScheduleTabState extends State<ScheduleTab> {
             stream: ref.snapshots(),
             builder: (context, snap) {
               if (snap.connectionState == ConnectionState.waiting) {
-                return const Center(child: CircularProgressIndicator());
+                return const Center(
+                  child: CircularProgressIndicator(),
+                );
               }
               if (snap.hasError) {
                 return Center(child: Text("Error: ${snap.error}"));
@@ -711,10 +814,10 @@ class _ScheduleTabState extends State<ScheduleTab> {
                   .toList();
 
               datedAll.sort((a, b) {
-                final as = a.data()['start'];
-                final bs = b.data()['start'];
-                if (as is Timestamp && bs is Timestamp) {
-                  return as.toDate().compareTo(bs.toDate());
+                final asValue = a.data()['start'];
+                final bsValue = b.data()['start'];
+                if (asValue is Timestamp && bsValue is Timestamp) {
+                  return asValue.toDate().compareTo(bsValue.toDate());
                 }
                 return 0;
               });
@@ -738,40 +841,49 @@ class _ScheduleTabState extends State<ScheduleTab> {
               return ListView(
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 90),
                 children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text(
-                        "Schedule",
-                        style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900),
-                      ),
-                      const SizedBox(width: 1),
-                    ],
+                  Text(
+                    "Schedule",
+                    style: TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w900,
+                      color: textColor,
+                    ),
                   ),
                   const SizedBox(height: 12),
 
                   Container(
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
-                      color: AppTheme.card,
+                      color: cardColor,
                       borderRadius: BorderRadius.circular(18),
                       border: Border.all(color: AppTheme.dark, width: 2),
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text("Weekly classes",
-                            style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+                        Text(
+                          "Weekly classes",
+                          style: TextStyle(
+                            fontWeight: FontWeight.w900,
+                            fontSize: 16,
+                            color: textColor,
+                          ),
+                        ),
                         const SizedBox(height: 10),
                         if (weekly.isEmpty)
-                          const Text("No weekly classes",
-                              style: TextStyle(fontWeight: FontWeight.w800)),
+                          Text(
+                            "No weekly classes",
+                            style: TextStyle(
+                              fontWeight: FontWeight.w800,
+                              color: textColor,
+                            ),
+                          ),
                         for (final d in weekly) ...[
                           Container(
                             margin: const EdgeInsets.only(bottom: 10),
                             padding: const EdgeInsets.all(12),
                             decoration: BoxDecoration(
-                              color: const Color(0xFFF2B8A8),
+                              color: AppTheme.softCardColor(context),
                               borderRadius: BorderRadius.circular(16),
                             ),
                             child: Row(
@@ -780,7 +892,10 @@ class _ScheduleTabState extends State<ScheduleTab> {
                                   width: 40,
                                   child: Text(
                                     _dayName((d.data()['dayOfWeek'] ?? 1) as int),
-                                    style: const TextStyle(fontWeight: FontWeight.w900),
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w900,
+                                      color: textColor,
+                                    ),
                                   ),
                                 ),
                                 const SizedBox(width: 10),
@@ -790,24 +905,30 @@ class _ScheduleTabState extends State<ScheduleTab> {
                                     children: [
                                       Text(
                                         (d.data()['title'] ?? '').toString(),
-                                        style: const TextStyle(fontWeight: FontWeight.w900),
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w900,
+                                          color: textColor,
+                                        ),
                                       ),
                                       const SizedBox(height: 2),
                                       Text(
                                         "${_fmtMin((d.data()['startMin'] ?? 0) as int)} → ${_fmtMin((d.data()['endMin'] ?? 0) as int)}"
                                         "${((d.data()['room'] ?? '').toString().trim().isEmpty) ? "" : " · Room: ${(d.data()['room'] ?? '').toString()}"}",
-                                        style: const TextStyle(fontWeight: FontWeight.w800),
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w800,
+                                          color: textColor,
+                                        ),
                                       ),
                                     ],
                                   ),
                                 ),
                                 IconButton(
                                   onPressed: () => _showWeeklyDialog(doc: d),
-                                  icon: const Icon(Icons.edit),
+                                  icon: Icon(Icons.edit, color: textColor),
                                 ),
                                 IconButton(
                                   onPressed: () => _delete(d.id),
-                                  icon: const Icon(Icons.delete),
+                                  icon: Icon(Icons.delete, color: textColor),
                                 ),
                               ],
                             ),
@@ -819,48 +940,71 @@ class _ScheduleTabState extends State<ScheduleTab> {
 
                   const SizedBox(height: 12),
 
+                  Text(
+                    "Exams / Events",
+                    style: TextStyle(
+                      fontWeight: FontWeight.w900,
+                      fontSize: 16,
+                      color: textColor,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+
+                  if (overdue.isNotEmpty) ...[
+                    Text(
+                      "Overdue",
+                      style: TextStyle(
+                        fontWeight: FontWeight.w900,
+                        color: textColor,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    for (final d in overdue) ...[
+                      _DatedCard(
+                        title: (d.data()['title'] ?? '').toString(),
+                        subtitle:
+                            "${_fmtDateTime(d.data()['start'])} → ${_fmtDateTime(d.data()['end'])}"
+                            "${((d.data()['room'] ?? '').toString().trim().isEmpty) ? "" : " · Room: ${(d.data()['room'] ?? '').toString()}"}",
+                        red: true,
+                        showCheck: false,
+                        checked: false,
+                        onCheck: null,
+                        showRestore: false,
+                        onRestore: null,
+                        onEdit: () => _showDatedDialog(doc: d),
+                        onDelete: () => _delete(d.id),
+                      ),
+                      const SizedBox(height: 10),
+                    ],
+                    const SizedBox(height: 12),
+                  ],
+
                   Container(
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
-                      color: AppTheme.card,
+                      color: cardColor,
                       borderRadius: BorderRadius.circular(18),
                       border: Border.all(color: AppTheme.dark, width: 2),
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text("Exams / Events",
-                            style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
-                        const SizedBox(height: 10),
-
-                        if (overdue.isNotEmpty) ...[
-                          const Text("Overdue",
-                              style: TextStyle(fontWeight: FontWeight.w900)),
-                          const SizedBox(height: 8),
-                          for (final d in overdue) ...[
-                            _DatedCard(
-                              title: (d.data()['title'] ?? '').toString(),
-                              subtitle:
-                                  "${_fmtDateTime(d.data()['start'])} → ${_fmtDateTime(d.data()['end'])}"
-                                  "${((d.data()['room'] ?? '').toString().trim().isEmpty) ? "" : " · Room: ${(d.data()['room'] ?? '').toString()}"}",
-                              red: true,
-                              showCheck: false,
-                              checked: false,
-                              onCheck: null,
-                              showRestore: false,
-                              onRestore: null,
-                              onEdit: () => _showDatedDialog(doc: d),
-                              onDelete: () => _delete(d.id),
-                            ),
-                            const SizedBox(height: 10),
-                          ],
-                          const SizedBox(height: 12),
-                        ],
-
+                        Text(
+                          "Active",
+                          style: TextStyle(
+                            fontWeight: FontWeight.w900,
+                            color: textColor,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
                         if (active.isEmpty)
-                          const Text("No active dated events",
-                              style: TextStyle(fontWeight: FontWeight.w800)),
-
+                          Text(
+                            "No active dated events",
+                            style: TextStyle(
+                              fontWeight: FontWeight.w800,
+                              color: textColor,
+                            ),
+                          ),
                         for (final d in active) ...[
                           _DatedCard(
                             title: (d.data()['title'] ?? '').toString(),
@@ -878,36 +1022,48 @@ class _ScheduleTabState extends State<ScheduleTab> {
                           ),
                           const SizedBox(height: 10),
                         ],
-
-                        const SizedBox(height: 12),
-                        const Text("Completed",
-                            style: TextStyle(fontWeight: FontWeight.w900)),
-                        const SizedBox(height: 8),
-
-                        if (completed.isEmpty)
-                          const Text("No completed appointments",
-                              style: TextStyle(fontWeight: FontWeight.w800)),
-
-                        for (final d in completed) ...[
-                          _DatedCard(
-                            title: (d.data()['title'] ?? '').toString(),
-                            subtitle:
-                                "${_fmtDateTime(d.data()['start'])} → ${_fmtDateTime(d.data()['end'])}"
-                                "${((d.data()['room'] ?? '').toString().trim().isEmpty) ? "" : " · Room: ${(d.data()['room'] ?? '').toString()}"}",
-                            red: false,
-                            showCheck: false,
-                            checked: false,
-                            onCheck: null,
-                            showRestore: true,
-                            onRestore: () => _restoreDated(context, d),
-                            onEdit: () => _showDatedDialog(doc: d),
-                            onDelete: () => _delete(d.id),
-                          ),
-                          const SizedBox(height: 10),
-                        ],
                       ],
                     ),
                   ),
+
+                  const SizedBox(height: 12),
+
+                  Text(
+                    "Completed",
+                    style: TextStyle(
+                      fontWeight: FontWeight.w900,
+                      fontSize: 16,
+                      color: textColor,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+
+                  if (completed.isEmpty)
+                    Text(
+                      "No completed appointments",
+                      style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        color: textColor,
+                      ),
+                    ),
+
+                  for (final d in completed) ...[
+                    _DatedCard(
+                      title: (d.data()['title'] ?? '').toString(),
+                      subtitle:
+                          "${_fmtDateTime(d.data()['start'])} → ${_fmtDateTime(d.data()['end'])}"
+                          "${((d.data()['room'] ?? '').toString().trim().isEmpty) ? "" : " · Room: ${(d.data()['room'] ?? '').toString()}"}",
+                      red: false,
+                      showCheck: false,
+                      checked: false,
+                      onCheck: null,
+                      showRestore: true,
+                      onRestore: () => _restoreDated(context, d),
+                      onEdit: () => _showDatedDialog(doc: d),
+                      onDelete: () => _delete(d.id),
+                    ),
+                    const SizedBox(height: 10),
+                  ],
                 ],
               );
             },
@@ -949,11 +1105,16 @@ class _DatedCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = AppTheme.isDark(context);
+    final textColor = red ? AppTheme.overdueRed : AppTheme.textPrimary(context);
+
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: const Color(0xFFF2B8A8),
-        borderRadius: BorderRadius.circular(16),
+        color: red
+            ? (isDark ? const Color(0xFF4A2323) : const Color(0xFFF6D1C9))
+            : AppTheme.softCardColor(context),
+        borderRadius: BorderRadius.circular(18),
         border: Border.all(
           color: red ? AppTheme.overdueRed : AppTheme.dark,
           width: 2,
@@ -970,11 +1131,15 @@ class _DatedCard extends StatelessWidget {
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   border: Border.all(
-                    color: red ? AppTheme.overdueRed : AppTheme.dark,
+                    color: red
+                        ? AppTheme.overdueRed
+                        : (isDark
+                            ? Colors.white.withValues(alpha: 0.70)
+                            : AppTheme.dark),
                     width: 2,
                   ),
                 ),
-                child: checked ? const Icon(Icons.check, size: 14) : null,
+                child: checked ? Icon(Icons.check, size: 14, color: textColor) : null,
               ),
             ),
           if (showCheck) const SizedBox(width: 10),
@@ -987,7 +1152,7 @@ class _DatedCard extends StatelessWidget {
                   title,
                   style: TextStyle(
                     fontWeight: FontWeight.w900,
-                    color: red ? AppTheme.overdueRed : Colors.black87,
+                    color: textColor,
                   ),
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -996,7 +1161,7 @@ class _DatedCard extends StatelessWidget {
                   subtitle,
                   style: TextStyle(
                     fontWeight: FontWeight.w900,
-                    color: red ? AppTheme.overdueRed : Colors.black87,
+                    color: textColor,
                   ),
                 ),
               ],
@@ -1007,16 +1172,16 @@ class _DatedCard extends StatelessWidget {
             IconButton(
               tooltip: "Restore",
               onPressed: onRestore,
-              icon: const Icon(Icons.undo),
+              icon: Icon(Icons.undo, color: textColor),
             ),
 
           IconButton(
             onPressed: onEdit,
-            icon: Icon(Icons.edit, color: red ? AppTheme.overdueRed : Colors.black87),
+            icon: Icon(Icons.edit, color: textColor),
           ),
           IconButton(
             onPressed: onDelete,
-            icon: Icon(Icons.delete, color: red ? AppTheme.overdueRed : Colors.black87),
+            icon: Icon(Icons.delete, color: textColor),
           ),
         ],
       ),

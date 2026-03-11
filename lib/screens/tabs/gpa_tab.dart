@@ -17,16 +17,28 @@ class _GpaTabState extends State<GpaTab> {
   DocumentReference<Map<String, dynamic>> get _gpaDoc =>
       FirebaseFirestore.instance.collection('users').doc(_uid).collection('gpa').doc('profile');
 
-  static const Color _cardColor = Color(0xFFE4B8AC);
   static const Color _btnSoft = Color(0xFFC27C86);
 
   static const Map<String, double> _gp4 = {
-    'A+': 4.0, 'A': 4.0, 'A-': 3.7,
-    'B+': 3.3, 'B': 3.0, 'B-': 2.7,
-    'C+': 2.3, 'C': 2.0, 'C-': 1.7,
-    'D+': 1.3, 'D': 1.0,
+    'A+': 4.0,
+    'A': 4.0,
+    'A-': 3.7,
+    'B+': 3.3,
+    'B': 3.0,
+    'B-': 2.7,
+    'C+': 2.3,
+    'C': 2.0,
+    'C-': 1.7,
+    'D+': 1.3,
+    'D': 1.0,
     'F': 0.0,
   };
+
+  void _toast(String text) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(text)),
+    );
+  }
 
   double _toDouble(dynamic v) {
     if (v is int) return v.toDouble();
@@ -52,13 +64,13 @@ class _GpaTabState extends State<GpaTab> {
   }
 
   double _semCredits(List<Map<String, dynamic>> courses) =>
-      courses.fold(0.0, (sum, c) => sum + _toDouble(c['credits']));
+      courses.fold(0.0, (total, c) => total + _toDouble(c['credits']));
 
   double _semQP(List<Map<String, dynamic>> courses) {
     double qp = 0.0;
     for (final c in courses) {
       final cr = _toDouble(c['credits']);
-      final pts = _toDouble(c['points']); // out of 4
+      final pts = _toDouble(c['points']);
       qp += cr * pts;
     }
     return qp;
@@ -74,8 +86,17 @@ class _GpaTabState extends State<GpaTab> {
       onTap: onTap,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-        decoration: BoxDecoration(color: _btnSoft, borderRadius: BorderRadius.circular(18)),
-        child: Text(text, style: const TextStyle(fontWeight: FontWeight.w900, color: Colors.white)),
+        decoration: BoxDecoration(
+          color: _btnSoft,
+          borderRadius: BorderRadius.circular(18),
+        ),
+        child: Text(
+          text,
+          style: const TextStyle(
+            fontWeight: FontWeight.w900,
+            color: Colors.white,
+          ),
+        ),
       ),
     );
   }
@@ -137,7 +158,9 @@ class _GpaTabState extends State<GpaTab> {
               const SizedBox(height: 10),
               DropdownButtonFormField<String>(
                 initialValue: grade,
-                items: _gp4.keys.map((g) => DropdownMenuItem(value: g, child: Text(g))).toList(),
+                items: _gp4.keys
+                    .map((g) => DropdownMenuItem(value: g, child: Text(g)))
+                    .toList(),
                 onChanged: (v) {
                   if (v == null) return;
                   setLocal(() {
@@ -158,7 +181,10 @@ class _GpaTabState extends State<GpaTab> {
             ],
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text("Cancel"),
+            ),
             ElevatedButton(
               onPressed: () async {
                 final name = nameCtrl.text.trim();
@@ -168,9 +194,15 @@ class _GpaTabState extends State<GpaTab> {
                 if (cr <= 0) return;
 
                 final next = List<Map<String, dynamic>>.from(current);
-                next.add({'name': name, 'credits': cr, 'grade': grade, 'points': points});
+                next.add({
+                  'name': name,
+                  'credits': cr,
+                  'grade': grade,
+                  'points': points,
+                });
 
                 await _saveCoursesOnly(next);
+                _toast("Course saved");
                 if (context.mounted) Navigator.pop(context);
               },
               child: const Text("Save"),
@@ -192,7 +224,6 @@ class _GpaTabState extends State<GpaTab> {
 
     final shownPrevGpa = _convert(prevGpaOutOf4, selectedScale);
 
-    // ✅ بدون أصفار
     final creditsCtrl = TextEditingController(
       text: (prevCredits == 0) ? "" : prevCredits.toStringAsFixed(0),
     );
@@ -238,7 +269,10 @@ class _GpaTabState extends State<GpaTab> {
             ],
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text("Cancel"),
+            ),
             ElevatedButton(
               onPressed: () async {
                 final pc = _toDouble(creditsCtrl.text.trim());
@@ -250,7 +284,8 @@ class _GpaTabState extends State<GpaTab> {
                 if (pg < 0) pg = 0;
                 if (pg > maxScale) pg = maxScale;
 
-                final prevOutOf4 = (selectedScale == 4) ? pg : (pg * (4.0 / 5.0));
+                final prevOutOf4 =
+                    (selectedScale == 4) ? pg : (pg * (4.0 / 5.0));
 
                 await _saveAll(
                   courses: courses,
@@ -259,6 +294,7 @@ class _GpaTabState extends State<GpaTab> {
                   scaleOutOf: selectedScale,
                 );
 
+                _toast("Settings saved");
                 if (context.mounted) Navigator.pop(context);
               },
               child: const Text("Save"),
@@ -273,18 +309,25 @@ class _GpaTabState extends State<GpaTab> {
     final next = List<Map<String, dynamic>>.from(courses);
     next.removeAt(index);
     await _saveCoursesOnly(next);
+    _toast("Course deleted");
   }
 
   @override
   Widget build(BuildContext context) {
+    final pageTop = AppTheme.pageTop(context);
+    final pageBottom = AppTheme.pageBottom(context);
+    final cardColor = AppTheme.cardColor(context);
+    final textColor = AppTheme.textPrimary(context);
+    final mutedText = AppTheme.textMuted(context);
+
     return Scaffold(
       backgroundColor: Colors.transparent,
       body: Container(
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [AppTheme.bgTop, AppTheme.bgBottom],
+            colors: [pageTop, pageBottom],
           ),
         ),
         child: SafeArea(
@@ -303,7 +346,8 @@ class _GpaTabState extends State<GpaTab> {
               final double semCredits = _semCredits(courses);
               final double semQP = _semQP(courses);
 
-              final double semOutOf4 = (semCredits == 0) ? 0.0 : (semQP / semCredits).toDouble();
+              final double semOutOf4 =
+                  (semCredits == 0) ? 0.0 : (semQP / semCredits).toDouble();
               final double semGpa = _convert(semOutOf4, scaleOutOf);
 
               final double prevQP = (prevCredits * prevGpaOutOf4).toDouble();
@@ -320,8 +364,14 @@ class _GpaTabState extends State<GpaTab> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text("GPA (out of $scaleOutOf)",
-                          style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900)),
+                      Text(
+                        "GPA (out of $scaleOutOf)",
+                        style: TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.w900,
+                          color: textColor,
+                        ),
+                      ),
                       Row(
                         children: [
                           _softBtn(
@@ -335,7 +385,10 @@ class _GpaTabState extends State<GpaTab> {
                             ),
                           ),
                           const SizedBox(width: 10),
-                          _softBtn("Add", () => _addCourseDialog(context, courses)),
+                          _softBtn(
+                            "Add",
+                            () => _addCourseDialog(context, courses),
+                          ),
                         ],
                       ),
                     ],
@@ -345,20 +398,37 @@ class _GpaTabState extends State<GpaTab> {
                   Container(
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
-                      color: _cardColor,
+                      color: cardColor,
                       borderRadius: BorderRadius.circular(18),
                       border: Border.all(color: AppTheme.dark, width: 2),
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text("Semester GPA", style: TextStyle(fontWeight: FontWeight.w900)),
+                        Text(
+                          "Semester GPA",
+                          style: TextStyle(
+                            fontWeight: FontWeight.w900,
+                            color: textColor,
+                          ),
+                        ),
                         const SizedBox(height: 6),
-                        Text(semGpa.toStringAsFixed(2),
-                            style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w900)),
+                        Text(
+                          semGpa.toStringAsFixed(2),
+                          style: TextStyle(
+                            fontSize: 28,
+                            fontWeight: FontWeight.w900,
+                            color: textColor,
+                          ),
+                        ),
                         const SizedBox(height: 6),
-                        Text("Credits: ${semCredits.toStringAsFixed(0)}",
-                            style: const TextStyle(fontWeight: FontWeight.w800)),
+                        Text(
+                          "Credits: ${semCredits.toStringAsFixed(0)}",
+                          style: TextStyle(
+                            fontWeight: FontWeight.w800,
+                            color: mutedText,
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -368,20 +438,38 @@ class _GpaTabState extends State<GpaTab> {
                   Container(
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
-                      color: _cardColor,
+                      color: cardColor,
                       borderRadius: BorderRadius.circular(18),
                       border: Border.all(color: AppTheme.dark, width: 2),
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text("Cumulative GPA", style: TextStyle(fontWeight: FontWeight.w900)),
+                        Text(
+                          "Cumulative GPA",
+                          style: TextStyle(
+                            fontWeight: FontWeight.w900,
+                            color: textColor,
+                          ),
+                        ),
                         const SizedBox(height: 6),
-                        Text(cumulativeGpa.toStringAsFixed(2),
-                            style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w900)),
+                        Text(
+                          cumulativeGpa.toStringAsFixed(2),
+                          style: TextStyle(
+                            fontSize: 28,
+                            fontWeight: FontWeight.w900,
+                            color: textColor,
+                          ),
+                        ),
                         const SizedBox(height: 6),
-                        Text("Previous credits: ${prevCredits.toStringAsFixed(0)}",
-                            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12)),
+                        Text(
+                          "Previous credits: ${prevCredits.toStringAsFixed(0)}",
+                          style: TextStyle(
+                            fontWeight: FontWeight.w800,
+                            fontSize: 12,
+                            color: mutedText,
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -392,13 +480,16 @@ class _GpaTabState extends State<GpaTab> {
                     Container(
                       padding: const EdgeInsets.all(14),
                       decoration: BoxDecoration(
-                        color: _cardColor,
+                        color: cardColor,
                         borderRadius: BorderRadius.circular(18),
                         border: Border.all(color: AppTheme.dark, width: 2),
                       ),
-                      child: const Text(
+                      child: Text(
                         "No courses yet.\nPress Add to start.",
-                        style: TextStyle(fontWeight: FontWeight.w800),
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          color: textColor,
+                        ),
                       ),
                     ),
 
@@ -407,7 +498,7 @@ class _GpaTabState extends State<GpaTab> {
                     Container(
                       padding: const EdgeInsets.all(14),
                       decoration: BoxDecoration(
-                        color: _cardColor,
+                        color: cardColor,
                         borderRadius: BorderRadius.circular(18),
                         border: Border.all(color: AppTheme.dark, width: 2),
                       ),
@@ -419,14 +510,22 @@ class _GpaTabState extends State<GpaTab> {
                               children: [
                                 Text(
                                   (courses[i]['name'] ?? '').toString(),
-                                  style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w900,
+                                    fontSize: 16,
+                                    color: textColor,
+                                  ),
                                   overflow: TextOverflow.ellipsis,
                                 ),
                                 const SizedBox(height: 6),
                                 Text(
                                   "Credits: ${(courses[i]['credits'] ?? 0)} • Grade: ${(courses[i]['grade'] ?? '')}"
                                   " • Points: ${(_toDouble(courses[i]['points'])).toStringAsFixed(2)}",
-                                  style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12),
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 12,
+                                    color: mutedText,
+                                  ),
                                   overflow: TextOverflow.ellipsis,
                                 ),
                               ],
@@ -434,7 +533,7 @@ class _GpaTabState extends State<GpaTab> {
                           ),
                           IconButton(
                             onPressed: () => _deleteCourse(courses, i),
-                            icon: const Icon(Icons.delete),
+                            icon: Icon(Icons.delete, color: textColor),
                           ),
                         ],
                       ),

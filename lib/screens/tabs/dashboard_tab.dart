@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../../theme/app_theme.dart';
+import '../../app_text.dart';
 
 class DashboardTab extends StatefulWidget {
   final VoidCallback goToSchedule;
@@ -35,29 +36,49 @@ class _DashboardTabState extends State<DashboardTab> {
           .collection('settings')
           .doc('app');
 
-  static const _quotes = [
-    "SMALL STEPS, BIG\nPROGRESS",
-    "DO IT NOW,\nBE PROUD LATER",
-    "ONE TASK\nAT A TIME",
-    "FOCUS\nAND FINISH",
-    "CONSISTENCY\nWINS",
-    "YOU'VE GOT\nTHIS",
-  ];
-
-  late String _quote;
-
-  @override
-  void initState() {
-    super.initState();
-    _quote = _quotes[Random().nextInt(_quotes.length)];
-  }
-
-  String _weekdayName(int w) {
-    const names = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+  String _weekdayName(int w, AppText text) {
+    if (text.isArabic) {
+      const names = [
+        'الاثنين',
+        'الثلاثاء',
+        'الأربعاء',
+        'الخميس',
+        'الجمعة',
+        'السبت',
+        'الأحد'
+      ];
+      return names[w - 1];
+    }
+    const names = [
+      'Monday',
+      'Tuesday',
+      'Wednesday',
+      'Thursday',
+      'Friday',
+      'Saturday',
+      'Sunday'
+    ];
     return names[w - 1];
   }
 
-  String _monthName(int m) {
+  String _monthName(int m, AppText text) {
+    if (text.isArabic) {
+      const names = [
+        'يناير',
+        'فبراير',
+        'مارس',
+        'أبريل',
+        'مايو',
+        'يونيو',
+        'يوليو',
+        'أغسطس',
+        'سبتمبر',
+        'أكتوبر',
+        'نوفمبر',
+        'ديسمبر'
+      ];
+      return names[m - 1];
+    }
     const names = [
       'January',
       'February',
@@ -75,7 +96,11 @@ class _DashboardTabState extends State<DashboardTab> {
     return names[m - 1];
   }
 
-  String _shortDayName(int d) {
+  String _shortDayName(int d, AppText text) {
+    if (text.isArabic) {
+      const names = ['أحد', 'اثن', 'ثلا', 'أرب', 'خمي', 'جمع', 'سبت'];
+      return names[(d - 1).clamp(0, 6)];
+    }
     const names = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     return names[(d - 1).clamp(0, 6)];
   }
@@ -98,10 +123,10 @@ class _DashboardTabState extends State<DashboardTab> {
     return '$h:$m$ampm';
   }
 
-  String _fmtDateTime(Timestamp ts) {
+  String _fmtDateTime(Timestamp ts, AppText text) {
     final d = ts.toDate();
     final dd = d.day.toString().padLeft(2, '0');
-    final mm = _monthName(d.month).substring(0, 3);
+    final mm = _monthName(d.month, text).substring(0, min(3, _monthName(d.month, text).length));
     return '$dd $mm · ${_fmt(d)}';
   }
 
@@ -130,16 +155,35 @@ class _DashboardTabState extends State<DashboardTab> {
     });
   }
 
+  List<String> _quotesFromSettings(Map<String, dynamic> settings, AppText text) {
+    final raw = settings['customQuotes'];
+    if (raw is List) {
+      final list = raw
+          .map((e) => e.toString().trim())
+          .where((e) => e.isNotEmpty)
+          .toList();
+      if (list.isNotEmpty) return list;
+    }
+    return text.defaultQuotes;
+  }
+
   @override
   Widget build(BuildContext context) {
     final now = DateTime.now();
+    final isDark = AppTheme.isDark(context);
+    final pageTop = AppTheme.pageTop(context);
+    final pageBottom = AppTheme.pageBottom(context);
+    final textColor = AppTheme.textPrimary(context);
+    final mutedText = AppTheme.textMuted(context);
+    final quoteColor =
+        isDark ? AppTheme.quoteCardDark : AppTheme.profileHeaderColor(context);
 
     return Container(
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [AppTheme.bgTop, AppTheme.bgBottom],
+          colors: [pageTop, pageBottom],
         ),
       ),
       child: SafeArea(
@@ -147,6 +191,7 @@ class _DashboardTabState extends State<DashboardTab> {
           stream: _settingsDoc.snapshots(),
           builder: (context, settingsSnap) {
             final settings = settingsSnap.data?.data() ?? {};
+            final text = AppText((settings['languageCode'] ?? 'en').toString());
 
             final quotesEnabled = (settings['quotesEnabled'] ?? true) == true;
             final weeklyHomeLimit = (settings['weeklyHomeLimit'] ?? 2) as int;
@@ -157,6 +202,9 @@ class _DashboardTabState extends State<DashboardTab> {
                 (settings['showAllWeeklyOnHome'] ?? false) == true;
             final showAllDatedOnHome =
                 (settings['showAllDatedOnHome'] ?? false) == true;
+
+            final quotes = _quotesFromSettings(settings, text);
+            final quote = quotes[Random().nextInt(quotes.length)];
 
             return ListView(
               padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
@@ -171,7 +219,7 @@ class _DashboardTabState extends State<DashboardTab> {
                     children: [
                       Expanded(
                         child: Text(
-                          "${_weekdayName(now.weekday)}, ${_monthName(now.month)}",
+                          "${_weekdayName(now.weekday, text)}, ${_monthName(now.month, text)}",
                           style: const TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.w900,
@@ -189,24 +237,26 @@ class _DashboardTabState extends State<DashboardTab> {
                           border: Border.all(color: AppTheme.dark, width: 2),
                         ),
                         child: Text(
-                          "${now.day}",
-                          style: const TextStyle(fontWeight: FontWeight.w900),
-                        ),
+  "${now.day}",
+  style: TextStyle(
+    fontWeight: FontWeight.w900,
+    color: AppTheme.isDark(context) ? AppTheme.dark : Colors.black87,
+  ),
+),
                       ),
                     ],
                   ),
                 ),
-
                 if (quotesEnabled) ...[
                   const SizedBox(height: 12),
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF9B858C),
+                      color: quoteColor,
                       borderRadius: BorderRadius.circular(18),
                     ),
                     child: Text(
-                      _quote,
+                      quote,
                       textAlign: TextAlign.center,
                       style: const TextStyle(
                         color: Colors.white,
@@ -216,9 +266,7 @@ class _DashboardTabState extends State<DashboardTab> {
                     ),
                   ),
                 ],
-
                 const SizedBox(height: 12),
-
                 StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                   stream: _schedRef.snapshots(),
                   builder: (context, snap) {
@@ -249,7 +297,11 @@ class _DashboardTabState extends State<DashboardTab> {
                         : weekly.take(weeklyHomeLimit).toList();
 
                     final dated = all
-                        .where((d) => (d.data()['type'] ?? 'weekly').toString() == 'dated')
+                        .where((d) {
+                          final data = d.data();
+                          return (data['type'] ?? 'weekly').toString() == 'dated' &&
+                              (data['done'] ?? false) != true;
+                        })
                         .toList();
 
                     dated.sort((a, b) {
@@ -270,13 +322,16 @@ class _DashboardTabState extends State<DashboardTab> {
                         GestureDetector(
                           onTap: widget.goToSchedule,
                           child: _Card(
-                            title: "Weekly",
-                            actionText: weekly.isEmpty ? "Add" : "More",
+                            title: text.weekly,
+                            actionText: weekly.isEmpty ? text.add : text.more,
                             onAction: widget.goToSchedule,
                             child: weeklyShown.isEmpty
-                                ? const Text(
-                                    "No weekly classes",
-                                    style: TextStyle(fontWeight: FontWeight.w800),
+                                ? Text(
+                                    text.noWeeklyClasses,
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                      color: textColor,
+                                    ),
                                   )
                                 : Column(
                                     children: [
@@ -288,16 +343,20 @@ class _DashboardTabState extends State<DashboardTab> {
                                               height: 38,
                                               alignment: Alignment.center,
                                               decoration: BoxDecoration(
-                                                color: const Color(0xFFE8A79A),
+                                                color: isDark
+                                                    ? AppTheme.darkCardSoft
+                                                    : const Color(0xFFE8A79A),
                                                 borderRadius: BorderRadius.circular(16),
                                               ),
                                               child: Text(
                                                 _shortDayName(
                                                   (weeklyShown[i].data()['dayOfWeek'] ?? 1) as int,
+                                                  text,
                                                 ),
-                                                style: const TextStyle(
+                                                style: TextStyle(
                                                   fontWeight: FontWeight.w900,
                                                   fontSize: 12,
+                                                  color: textColor,
                                                 ),
                                               ),
                                             ),
@@ -326,20 +385,23 @@ class _DashboardTabState extends State<DashboardTab> {
                         GestureDetector(
                           onTap: widget.goToSchedule,
                           child: _Card(
-                            title: "Appointments",
-                            actionText: dated.isEmpty ? "Add" : "More",
+                            title: text.appointments,
+                            actionText: dated.isEmpty ? text.add : text.more,
                             onAction: widget.goToSchedule,
                             child: datedShown.isEmpty
-                                ? const Text(
-                                    "No dated events",
-                                    style: TextStyle(fontWeight: FontWeight.w800),
+                                ? Text(
+                                    text.noDatedEvents,
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                      color: textColor,
+                                    ),
                                   )
                                 : Column(
                                     children: [
                                       for (final d in datedShown) ...[
                                         _MiniLine(
                                           title: (d.data()['title'] ?? '').toString(),
-                                          subtitle: _fmtDateTime(d.data()['start']),
+                                          subtitle: _fmtDateTime(d.data()['start'], text),
                                           isOverdue: _isOverdueDatedSchedule(d.data()),
                                         ),
                                         const SizedBox(height: 8),
@@ -352,9 +414,7 @@ class _DashboardTabState extends State<DashboardTab> {
                     );
                   },
                 ),
-
                 const SizedBox(height: 12),
-
                 StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                   stream: _tasksRef.where('done', isEqualTo: false).snapshots(),
                   builder: (context, snap) {
@@ -389,13 +449,16 @@ class _DashboardTabState extends State<DashboardTab> {
                     return GestureDetector(
                       onTap: widget.goToTasks,
                       child: _Card(
-                        title: "Tasks",
-                        actionText: docs.isEmpty ? "Add" : "More",
+                        title: text.tasks,
+                        actionText: docs.isEmpty ? text.add : text.more,
                         onAction: widget.goToTasks,
                         child: merged.isEmpty
-                            ? const Text(
-                                "No tasks",
-                                style: TextStyle(fontWeight: FontWeight.w800),
+                            ? Text(
+                                text.noTasks,
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  color: textColor,
+                                ),
                               )
                             : Column(
                                 children: [
@@ -411,7 +474,9 @@ class _DashboardTabState extends State<DashboardTab> {
                                               decoration: BoxDecoration(
                                                 shape: BoxShape.circle,
                                                 border: Border.all(
-                                                  color: AppTheme.dark,
+                                                  color: isDark
+                                                      ? Colors.white.withValues(alpha: 0.70)
+                                                      : AppTheme.dark,
                                                   width: 2,
                                                 ),
                                               ),
@@ -426,7 +491,7 @@ class _DashboardTabState extends State<DashboardTab> {
                                               fontWeight: FontWeight.w800,
                                               color: _isOverdueTask(d.data())
                                                   ? AppTheme.overdueRed
-                                                  : Colors.black87,
+                                                  : mutedText,
                                             ),
                                             overflow: TextOverflow.ellipsis,
                                           ),
@@ -434,12 +499,12 @@ class _DashboardTabState extends State<DashboardTab> {
                                         const SizedBox(width: 10),
                                         if (d.data()['dueAt'] is Timestamp)
                                           Text(
-                                            _fmtDateTime(d.data()['dueAt']),
+                                            _fmtDateTime(d.data()['dueAt'], text),
                                             style: TextStyle(
                                               fontWeight: FontWeight.w900,
                                               color: _isOverdueTask(d.data())
                                                   ? AppTheme.overdueRed
-                                                  : Colors.black87,
+                                                  : mutedText,
                                             ),
                                           ),
                                       ],
@@ -452,7 +517,6 @@ class _DashboardTabState extends State<DashboardTab> {
                     );
                   },
                 ),
-
                 const SizedBox(height: 90),
               ],
             );
@@ -478,10 +542,12 @@ class _Card extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final textColor = AppTheme.textPrimary(context);
+
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: AppTheme.card,
+        color: AppTheme.cardColor(context),
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: AppTheme.dark, width: 2),
       ),
@@ -493,7 +559,11 @@ class _Card extends StatelessWidget {
               Expanded(
                 child: Text(
                   title,
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w900,
+                    color: textColor,
+                  ),
                 ),
               ),
               InkWell(
@@ -531,15 +601,23 @@ class _Pill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = AppTheme.isDark(context);
+
     return Container(
       height: 38,
       alignment: Alignment.centerLeft,
       padding: const EdgeInsets.symmetric(horizontal: 14),
       decoration: BoxDecoration(
-        color: const Color(0xFFF2B8A8),
+        color: isDark ? AppTheme.darkCardSoft : const Color(0xFFF2B8A8),
         borderRadius: BorderRadius.circular(16),
       ),
-      child: Text(text, style: const TextStyle(fontWeight: FontWeight.w900)),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontWeight: FontWeight.w900,
+          color: AppTheme.textPrimary(context),
+        ),
+      ),
     );
   }
 }
@@ -550,18 +628,24 @@ class _TimePill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = AppTheme.isDark(context);
+
     return Container(
       width: 82,
       height: 38,
       alignment: Alignment.center,
       decoration: BoxDecoration(
-        color: const Color(0xFFE8A79A),
+        color: isDark ? AppTheme.darkCardSoft : const Color(0xFFE8A79A),
         borderRadius: BorderRadius.circular(16),
       ),
       child: Text(
         text,
         textAlign: TextAlign.center,
-        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w900),
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w900,
+          color: AppTheme.textPrimary(context),
+        ),
       ),
     );
   }
@@ -580,6 +664,8 @@ class _MiniLine extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final normalColor = AppTheme.textMuted(context);
+
     return Row(
       children: [
         Expanded(
@@ -587,7 +673,7 @@ class _MiniLine extends StatelessWidget {
             title,
             style: TextStyle(
               fontWeight: FontWeight.w900,
-              color: isOverdue ? AppTheme.overdueRed : Colors.black87,
+              color: isOverdue ? AppTheme.overdueRed : normalColor,
             ),
             overflow: TextOverflow.ellipsis,
           ),
@@ -597,7 +683,7 @@ class _MiniLine extends StatelessWidget {
           subtitle,
           style: TextStyle(
             fontWeight: FontWeight.w900,
-            color: isOverdue ? AppTheme.overdueRed : Colors.black87,
+            color: isOverdue ? AppTheme.overdueRed : normalColor,
           ),
         ),
       ],

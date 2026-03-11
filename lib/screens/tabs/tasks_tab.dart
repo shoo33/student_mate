@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../../theme/app_theme.dart';
+import '../../app_text.dart';
 
 class TasksTab extends StatelessWidget {
   const TasksTab({super.key});
@@ -11,6 +12,12 @@ class TasksTab extends StatelessWidget {
 
   CollectionReference<Map<String, dynamic>> get _tasksRef =>
       FirebaseFirestore.instance.collection('users').doc(_uid).collection('tasks');
+
+  void _toast(BuildContext context, String text) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(text)),
+    );
+  }
 
   Future<DateTime?> _pickDateTime(BuildContext context, DateTime initial) async {
     final date = await showDatePicker(
@@ -41,11 +48,46 @@ class TasksTab extends StatelessWidget {
     return '$h:$m$ampm';
   }
 
-  String _fmtDue(Timestamp ts) {
+  String _monthName(int month, AppText t) {
+    if (t.isArabic) {
+      const months = [
+        'يناير',
+        'فبراير',
+        'مارس',
+        'أبريل',
+        'مايو',
+        'يونيو',
+        'يوليو',
+        'أغسطس',
+        'سبتمبر',
+        'أكتوبر',
+        'نوفمبر',
+        'ديسمبر',
+      ];
+      return months[month - 1];
+    }
+
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    return months[month - 1];
+  }
+
+  String _fmtDue(Timestamp ts, AppText t) {
     final d = ts.toDate();
     final dd = d.day.toString().padLeft(2, '0');
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    return '$dd ${months[d.month - 1]} · ${_fmt(d)}';
+    return '$dd ${_monthName(d.month, t)} · ${_fmt(d)}';
   }
 
   bool _isOverdue(Map<String, dynamic> t) {
@@ -66,19 +108,23 @@ class TasksTab extends StatelessWidget {
     required String typeName,
     required VoidCallback onEdit,
   }) async {
+    final t = AppText(Localizations.localeOf(context).languageCode);
+
     await showDialog(
       context: context,
       builder: (ctx) {
         return AlertDialog(
-          title: const Text("Date expired"),
+          title: Text(t.isArabic ? "انتهى التاريخ" : "Date expired"),
           content: Text(
-            "This $typeName date has already passed.\nEdit the date first if you want to restore it.",
+            t.isArabic
+                ? "تاريخ $typeName انتهى بالفعل.\nعدلي التاريخ أولًا إذا تبين استرجاعه."
+                : "This $typeName date has already passed.\nEdit the date first if you want to restore it.",
             style: const TextStyle(fontWeight: FontWeight.w800),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx),
-              child: const Text("Close"),
+              child: Text(t.close),
             ),
             ElevatedButton(
               style: ElevatedButton.styleFrom(
@@ -89,7 +135,7 @@ class TasksTab extends StatelessWidget {
                 Navigator.pop(ctx);
                 onEdit();
               },
-              child: const Text("Edit date"),
+              child: Text(t.isArabic ? "تعديل التاريخ" : "Edit date"),
             ),
           ],
         );
@@ -103,6 +149,7 @@ class TasksTab extends StatelessWidget {
     String initialTitle = '',
     Timestamp? initialDue,
   }) async {
+    final t = AppText(Localizations.localeOf(context).languageCode);
     final titleCtrl = TextEditingController(text: initialTitle);
     DateTime? due = initialDue?.toDate();
 
@@ -112,28 +159,41 @@ class TasksTab extends StatelessWidget {
         return StatefulBuilder(
           builder: (ctx, setLocal) {
             return AlertDialog(
-              title: Text(docId == null ? "Add Task" : "Edit Task"),
+              title: Text(
+                docId == null
+                    ? (t.isArabic ? "إضافة مهمة" : "Add Task")
+                    : (t.isArabic ? "تعديل المهمة" : "Edit Task"),
+              ),
               content: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   TextField(
                     controller: titleCtrl,
-                    decoration: const InputDecoration(labelText: "Title"),
+                    textDirection: TextDirection.auto,
+                    decoration: InputDecoration(
+                      labelText: t.isArabic ? "العنوان" : "Title",
+                    ),
                   ),
                   const SizedBox(height: 12),
                   Row(
                     children: [
                       Expanded(
                         child: Text(
-                          due == null ? "No deadline" : _fmtDue(Timestamp.fromDate(due!)),
-                          style: const TextStyle(fontWeight: FontWeight.w900),
+                          due == null
+                              ? (t.isArabic ? "بدون موعد نهائي" : "No deadline")
+                              : _fmtDue(Timestamp.fromDate(due!), t),
+                          style: TextStyle(
+                            fontWeight: FontWeight.w900,
+                            color: AppTheme.textPrimary(context),
+                          ),
                         ),
                       ),
                       IconButton(
-                        tooltip: "Pick deadline",
+                        tooltip: t.isArabic ? "اختيار الموعد" : "Pick deadline",
                         icon: const Icon(Icons.calendar_month),
                         onPressed: () async {
-                          final picked = await _pickDateTime(ctx, due ?? DateTime.now());
+                          final picked =
+                              await _pickDateTime(ctx, due ?? DateTime.now());
                           if (picked != null) {
                             setLocal(() => due = picked);
                           }
@@ -146,7 +206,7 @@ class TasksTab extends StatelessWidget {
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(ctx),
-                  child: const Text("Cancel"),
+                  child: Text(t.cancel),
                 ),
                 ElevatedButton(
                   style: ElevatedButton.styleFrom(
@@ -164,17 +224,25 @@ class TasksTab extends StatelessWidget {
                         'dueAt': due == null ? null : Timestamp.fromDate(due!),
                         'createdAt': FieldValue.serverTimestamp(),
                       });
+                      _toast(
+                        context,
+                        t.isArabic ? "تم حفظ المهمة" : "Task saved",
+                      );
                     } else {
                       await _tasksRef.doc(docId).update({
                         'title': title,
                         'dueAt': due == null ? null : Timestamp.fromDate(due!),
                         'updatedAt': FieldValue.serverTimestamp(),
                       });
+                      _toast(
+                        context,
+                        t.isArabic ? "تم تحديث المهمة" : "Task updated",
+                      );
                     }
 
                     if (ctx.mounted) Navigator.pop(ctx);
                   },
-                  child: const Text("Save"),
+                  child: Text(t.save),
                 ),
               ],
             );
@@ -184,28 +252,40 @@ class TasksTab extends StatelessWidget {
     );
   }
 
-  Future<void> _toggleDone(String id, bool done) async {
+  Future<void> _toggleDone(BuildContext context, String id, bool done) async {
+    final t = AppText(Localizations.localeOf(context).languageCode);
+
     await _tasksRef.doc(id).update({
       'done': done,
       'updatedAt': FieldValue.serverTimestamp(),
     });
+
+    if (done) {
+      _toast(
+        context,
+        t.isArabic ? "تم وضعها كمكتملة" : "Marked as completed",
+      );
+    }
   }
 
-  Future<void> _delete(String id) async {
+  Future<void> _delete(BuildContext context, String id) async {
+    final t = AppText(Localizations.localeOf(context).languageCode);
     await _tasksRef.doc(id).delete();
+    _toast(context, t.isArabic ? "تم الحذف" : "Deleted");
   }
 
   Future<void> _restoreTask(
     BuildContext context,
     QueryDocumentSnapshot<Map<String, dynamic>> doc,
   ) async {
+    final t = AppText(Localizations.localeOf(context).languageCode);
     final data = doc.data();
     final due = data['dueAt'];
 
     if (due is Timestamp && _datePassed(due)) {
       await _showRestoreExpiredDialog(
         context,
-        typeName: "task",
+        typeName: t.isArabic ? "المهمة" : "task",
         onEdit: () => _addOrEditDialog(
           context,
           docId: doc.id,
@@ -216,11 +296,23 @@ class TasksTab extends StatelessWidget {
       return;
     }
 
-    await _toggleDone(doc.id, false);
+    await _tasksRef.doc(doc.id).update({
+      'done': false,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+    _toast(context, t.isArabic ? "تم الاسترجاع" : "Restored");
   }
 
   @override
   Widget build(BuildContext context) {
+    final t = AppText(Localizations.localeOf(context).languageCode);
+    final pageTop = AppTheme.pageTop(context);
+    final pageBottom = AppTheme.pageBottom(context);
+    final cardColor = AppTheme.cardColor(context);
+    final textColor = AppTheme.textPrimary(context);
+    final mutedText = AppTheme.textMuted(context);
+    final isDark = AppTheme.isDark(context);
+
     return Scaffold(
       backgroundColor: Colors.transparent,
       floatingActionButton: FloatingActionButton(
@@ -230,11 +322,11 @@ class TasksTab extends StatelessWidget {
         child: const Icon(Icons.add),
       ),
       body: Container(
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [AppTheme.bgTop, AppTheme.bgBottom],
+            colors: [pageTop, pageBottom],
           ),
         ),
         child: SafeArea(
@@ -250,11 +342,15 @@ class TasksTab extends StatelessWidget {
 
               final docs = snapshot.data?.docs ?? [];
 
-              final active = docs.where((d) => (d.data()['done'] ?? false) != true).toList();
-              final completed = docs.where((d) => (d.data()['done'] ?? false) == true).toList();
+              final active =
+                  docs.where((d) => (d.data()['done'] ?? false) != true).toList();
+              final completed =
+                  docs.where((d) => (d.data()['done'] ?? false) == true).toList();
 
-              final withDue = active.where((d) => d.data()['dueAt'] is Timestamp).toList();
-              final noDue = active.where((d) => d.data()['dueAt'] is! Timestamp).toList();
+              final withDue =
+                  active.where((d) => d.data()['dueAt'] is Timestamp).toList();
+              final noDue =
+                  active.where((d) => d.data()['dueAt'] is! Timestamp).toList();
 
               withDue.sort((a, b) {
                 final ad = (a.data()['dueAt'] as Timestamp).toDate();
@@ -272,7 +368,8 @@ class TasksTab extends StatelessWidget {
               });
 
               final overdue = withDue.where((d) => _isOverdue(d.data())).toList();
-              final upcoming = withDue.where((d) => !_isOverdue(d.data())).toList();
+              final upcoming =
+                  withDue.where((d) => !_isOverdue(d.data())).toList();
 
               completed.sort((a, b) {
                 final ad = a.data()['updatedAt'];
@@ -286,20 +383,29 @@ class TasksTab extends StatelessWidget {
               return ListView(
                 padding: const EdgeInsets.fromLTRB(16, 16, 16, 90),
                 children: [
-                  const Text(
-                    "Tasks",
-                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900),
+                  Text(
+                    t.tasks,
+                    style: TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w900,
+                      color: textColor,
+                    ),
                   ),
                   const SizedBox(height: 12),
-
                   if (overdue.isNotEmpty) ...[
-                    const Text("Overdue",
-                        style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+                    Text(
+                      t.isArabic ? "متأخرة" : "Overdue",
+                      style: TextStyle(
+                        fontWeight: FontWeight.w900,
+                        fontSize: 16,
+                        color: textColor,
+                      ),
+                    ),
                     const SizedBox(height: 8),
                     for (final d in overdue) ...[
                       _TaskCard(
                         title: (d.data()['title'] ?? '').toString(),
-                        rightText: _fmtDue(d.data()['dueAt']),
+                        rightText: _fmtDue(d.data()['dueAt'], t),
                         rightColor: AppTheme.overdueRed,
                         showCheck: false,
                         showRestore: false,
@@ -309,38 +415,46 @@ class TasksTab extends StatelessWidget {
                           initialTitle: (d.data()['title'] ?? '').toString(),
                           initialDue: d.data()['dueAt'],
                         ),
-                        onDelete: () => _delete(d.id),
+                        onDelete: () => _delete(context, d.id),
                       ),
                       const SizedBox(height: 10),
                     ],
                     const SizedBox(height: 12),
                   ],
-
-                  const Text("Active",
-                      style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+                  Text(
+                    t.isArabic ? "نشطة" : "Active",
+                    style: TextStyle(
+                      fontWeight: FontWeight.w900,
+                      fontSize: 16,
+                      color: textColor,
+                    ),
+                  ),
                   const SizedBox(height: 8),
-
                   if (active.isEmpty)
                     Container(
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
-                        color: AppTheme.card,
+                        color: cardColor,
                         borderRadius: BorderRadius.circular(18),
                         border: Border.all(color: AppTheme.dark, width: 2),
                       ),
-                      child: const Text(
-                        "No tasks",
-                        style: TextStyle(fontWeight: FontWeight.w800),
+                      child: Text(
+                        t.noTasks,
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          color: textColor,
+                        ),
                       ),
                     ),
-
                   for (final d in [...upcoming, ...noDue]) ...[
                     _TaskCard(
                       title: (d.data()['title'] ?? '').toString(),
-                      rightText: (d.data()['dueAt'] is Timestamp) ? _fmtDue(d.data()['dueAt']) : null,
-                      rightColor: Colors.black87,
+                      rightText: (d.data()['dueAt'] is Timestamp)
+                          ? _fmtDue(d.data()['dueAt'], t)
+                          : null,
+                      rightColor: mutedText,
                       showCheck: true,
-                      onCheck: () => _toggleDone(d.id, true),
+                      onCheck: () => _toggleDone(context, d.id, true),
                       showRestore: false,
                       onEdit: () => _addOrEditDialog(
                         context,
@@ -348,27 +462,40 @@ class TasksTab extends StatelessWidget {
                         initialTitle: (d.data()['title'] ?? '').toString(),
                         initialDue: d.data()['dueAt'],
                       ),
-                      onDelete: () => _delete(d.id),
+                      onDelete: () => _delete(context, d.id),
                     ),
                     const SizedBox(height: 10),
                   ],
-
                   const SizedBox(height: 16),
-                  const Text("Completed",
-                      style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+                  Text(
+                    t.isArabic ? "مكتملة" : "Completed",
+                    style: TextStyle(
+                      fontWeight: FontWeight.w900,
+                      fontSize: 16,
+                      color: textColor,
+                    ),
+                  ),
                   const SizedBox(height: 8),
-
                   if (completed.isEmpty)
-                    const Text("No completed tasks",
-                        style: TextStyle(fontWeight: FontWeight.w700)),
-
+                    Text(
+                      t.isArabic
+                          ? "لا توجد مهام مكتملة"
+                          : "No completed tasks",
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        color: mutedText,
+                      ),
+                    ),
                   for (final d in completed) ...[
                     _TaskCard(
                       title: (d.data()['title'] ?? '').toString(),
-                      rightText: (d.data()['dueAt'] is Timestamp) ? _fmtDue(d.data()['dueAt']) : null,
-                      rightColor: Colors.black87,
+                      rightText: (d.data()['dueAt'] is Timestamp)
+                          ? _fmtDue(d.data()['dueAt'], t)
+                          : null,
+                      rightColor: mutedText,
                       showCheck: false,
                       showRestore: true,
+                      restoreTooltip: t.isArabic ? "استرجاع" : "Restore",
                       onRestore: () => _restoreTask(context, d),
                       onEdit: () => _addOrEditDialog(
                         context,
@@ -376,7 +503,7 @@ class TasksTab extends StatelessWidget {
                         initialTitle: (d.data()['title'] ?? '').toString(),
                         initialDue: d.data()['dueAt'],
                       ),
-                      onDelete: () => _delete(d.id),
+                      onDelete: () => _delete(context, d.id),
                     ),
                     const SizedBox(height: 10),
                   ],
@@ -400,6 +527,7 @@ class _TaskCard extends StatelessWidget {
   final VoidCallback? onCheck;
 
   final bool showRestore;
+  final String? restoreTooltip;
   final VoidCallback? onRestore;
 
   final VoidCallback onEdit;
@@ -414,6 +542,7 @@ class _TaskCard extends StatelessWidget {
     this.checked = false,
     this.onCheck,
     required this.showRestore,
+    this.restoreTooltip,
     this.onRestore,
     required this.onEdit,
     required this.onDelete,
@@ -421,10 +550,13 @@ class _TaskCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final textColor = AppTheme.textPrimary(context);
+    final isDark = AppTheme.isDark(context);
+
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: AppTheme.card,
+        color: AppTheme.cardColor(context),
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: AppTheme.dark, width: 2),
       ),
@@ -438,21 +570,30 @@ class _TaskCard extends StatelessWidget {
                 height: 20,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  border: Border.all(color: AppTheme.dark, width: 2),
+                  border: Border.all(
+                    color: isDark
+                        ? Colors.white.withValues(alpha: 0.70)
+                        : AppTheme.dark,
+                    width: 2,
+                  ),
                 ),
-                child: checked ? const Icon(Icons.check, size: 14) : null,
+                child: checked
+                    ? Icon(Icons.check, size: 14, color: textColor)
+                    : null,
               ),
             ),
           if (showCheck) const SizedBox(width: 10),
-
           Expanded(
             child: Text(
               title,
-              style: const TextStyle(fontWeight: FontWeight.w900),
+              textDirection: TextDirection.auto,
+              style: TextStyle(
+                fontWeight: FontWeight.w900,
+                color: textColor,
+              ),
               overflow: TextOverflow.ellipsis,
             ),
           ),
-
           if (rightText != null) ...[
             const SizedBox(width: 10),
             Text(
@@ -463,23 +604,20 @@ class _TaskCard extends StatelessWidget {
               ),
             ),
           ],
-
           const SizedBox(width: 6),
-
           if (showRestore)
             IconButton(
-              tooltip: "Restore",
+              tooltip: restoreTooltip,
               onPressed: onRestore,
-              icon: const Icon(Icons.undo),
+              icon: Icon(Icons.undo, color: textColor),
             ),
-
           IconButton(
             onPressed: onEdit,
-            icon: const Icon(Icons.edit),
+            icon: Icon(Icons.edit, color: textColor),
           ),
           IconButton(
             onPressed: onDelete,
-            icon: const Icon(Icons.delete),
+            icon: Icon(Icons.delete, color: textColor),
           ),
         ],
       ),

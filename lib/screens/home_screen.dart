@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
-import '../theme/app_theme.dart';
+import '../theme/app_theme.dart' as theme;
+import '../app_text.dart';
 import 'tabs/dashboard_tab.dart';
 import 'tabs/tasks_tab.dart';
 import 'tabs/schedule_tab.dart';
@@ -20,6 +23,15 @@ class _HomeScreenState extends State<HomeScreen> {
 
   late final List<Widget> _tabs;
 
+  String get _uid => FirebaseAuth.instance.currentUser!.uid;
+
+  DocumentReference<Map<String, dynamic>> get _settingsDoc =>
+      FirebaseFirestore.instance
+          .collection('users')
+          .doc(_uid)
+          .collection('settings')
+          .doc('app');
+
   @override
   void initState() {
     super.initState();
@@ -29,7 +41,7 @@ class _HomeScreenState extends State<HomeScreen> {
         goToSchedule: () => setState(() => _i = 2),
       ),
       const TasksTab(),
-      const ScheduleTab(),
+      ScheduleTab(),
       const NotesTab(),
       const GpaTab(),
       const ProfileTab(),
@@ -38,70 +50,124 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppTheme.bgBottom,
-      body: _tabs[_i],
-      bottomNavigationBar: Container(
-        color: AppTheme.bgBottom,
-        child: SafeArea(
-          top: false,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
-            child: Material(
-              color: const Color(0xFFF2B8A8),
-              borderRadius: BorderRadius.circular(18),
-              child: Container(
-                height: 64,
-                decoration: BoxDecoration(
+    final isDark = theme.AppTheme.isDark(context);
+
+    final pageBg = theme.AppTheme.pageBottom(context);
+    final navBg =
+        isDark ? theme.AppTheme.softCardColor(context) : const Color(0xFFF2B8A8);
+
+    final borderColor = isDark
+        ? Colors.white.withValues(alpha: 0.18)
+        : theme.AppTheme.dark;
+
+    final selectedColor = isDark ? Colors.white : theme.AppTheme.dark;
+    final unselectedColor =
+        isDark ? Colors.white.withValues(alpha: 0.75) : Colors.black87;
+
+    final splashColor = isDark
+        ? Colors.white.withValues(alpha: 0.08)
+        : Colors.black.withValues(alpha: 0.10);
+
+    final highlightColor = isDark
+        ? Colors.white.withValues(alpha: 0.05)
+        : Colors.black.withValues(alpha: 0.06);
+
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: _settingsDoc.snapshots(),
+      builder: (context, snap) {
+        final settings = snap.data?.data() ?? {};
+        final text = AppText((settings['languageCode'] ?? 'en').toString());
+
+        return Scaffold(
+          backgroundColor: pageBg,
+          body: _tabs[_i],
+          bottomNavigationBar: Container(
+            color: pageBg,
+            child: SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+                child: Material(
+                  color: navBg,
                   borderRadius: BorderRadius.circular(18),
-                  border: Border.all(color: AppTheme.dark, width: 2),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceAround,
-                  children: [
-                    _NavItem(
-                      icon: Icons.home_outlined,
-                      label: "Home",
-                      selected: _i == 0,
-                      onTap: () => setState(() => _i = 0),
+                  child: Container(
+                    height: 64,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(color: borderColor, width: 2),
                     ),
-                    _NavItem(
-                      icon: Icons.check_circle_outline,
-                      label: "Tasks",
-                      selected: _i == 1,
-                      onTap: () => setState(() => _i = 1),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceAround,
+                      children: [
+                        _NavItem(
+                          icon: Icons.home_outlined,
+                          label: text.home,
+                          selected: _i == 0,
+                          selectedColor: selectedColor,
+                          unselectedColor: unselectedColor,
+                          splashColor: splashColor,
+                          highlightColor: highlightColor,
+                          onTap: () => setState(() => _i = 0),
+                        ),
+                        _NavItem(
+                          icon: Icons.check_circle_outline,
+                          label: text.tasks,
+                          selected: _i == 1,
+                          selectedColor: selectedColor,
+                          unselectedColor: unselectedColor,
+                          splashColor: splashColor,
+                          highlightColor: highlightColor,
+                          onTap: () => setState(() => _i = 1),
+                        ),
+                        _NavItem(
+                          icon: Icons.calendar_month_outlined,
+                          label: text.schedule,
+                          selected: _i == 2,
+                          selectedColor: selectedColor,
+                          unselectedColor: unselectedColor,
+                          splashColor: splashColor,
+                          highlightColor: highlightColor,
+                          onTap: () => setState(() => _i = 2),
+                        ),
+                        _NavItem(
+                          icon: Icons.note_outlined,
+                          label: text.notes,
+                          selected: _i == 3,
+                          selectedColor: selectedColor,
+                          unselectedColor: unselectedColor,
+                          splashColor: splashColor,
+                          highlightColor: highlightColor,
+                          onTap: () => setState(() => _i = 3),
+                        ),
+                        _NavItem(
+                          icon: Icons.calculate_outlined,
+                          label: text.gpa,
+                          selected: _i == 4,
+                          selectedColor: selectedColor,
+                          unselectedColor: unselectedColor,
+                          splashColor: splashColor,
+                          highlightColor: highlightColor,
+                          onTap: () => setState(() => _i = 4),
+                        ),
+                        _NavItem(
+                          icon: Icons.person_outline,
+                          label: text.profile,
+                          selected: _i == 5,
+                          selectedColor: selectedColor,
+                          unselectedColor: unselectedColor,
+                          splashColor: splashColor,
+                          highlightColor: highlightColor,
+                          onTap: () => setState(() => _i = 5),
+                        ),
+                      ],
                     ),
-                    _NavItem(
-                      icon: Icons.calendar_month_outlined,
-                      label: "Schedule",
-                      selected: _i == 2,
-                      onTap: () => setState(() => _i = 2),
-                    ),
-                    _NavItem(
-                      icon: Icons.note_outlined,
-                      label: "Notes",
-                      selected: _i == 3,
-                      onTap: () => setState(() => _i = 3),
-                    ),
-                    _NavItem(
-                      icon: Icons.calculate_outlined,
-                      label: "GPA",
-                      selected: _i == 4,
-                      onTap: () => setState(() => _i = 4),
-                    ),
-                    _NavItem(
-                      icon: Icons.person_outline,
-                      label: "Profile",
-                      selected: _i == 5,
-                      onTap: () => setState(() => _i = 5),
-                    ),
-                  ],
+                  ),
                 ),
               ),
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }
@@ -110,12 +176,20 @@ class _NavItem extends StatelessWidget {
   final IconData icon;
   final String label;
   final bool selected;
+  final Color selectedColor;
+  final Color unselectedColor;
+  final Color splashColor;
+  final Color highlightColor;
   final VoidCallback onTap;
 
   const _NavItem({
     required this.icon,
     required this.label,
     required this.selected,
+    required this.selectedColor,
+    required this.unselectedColor,
+    required this.splashColor,
+    required this.highlightColor,
     required this.onTap,
   });
 
@@ -125,8 +199,8 @@ class _NavItem extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         borderRadius: BorderRadius.circular(14),
-        splashColor: Colors.black.withValues(alpha: 0.10),
-        highlightColor: Colors.black.withValues(alpha: 0.06),
+        splashColor: splashColor,
+        highlightColor: highlightColor,
         onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
@@ -136,7 +210,7 @@ class _NavItem extends StatelessWidget {
               Icon(
                 icon,
                 size: 22,
-                color: selected ? AppTheme.dark : Colors.black87,
+                color: selected ? selectedColor : unselectedColor,
               ),
               const SizedBox(height: 2),
               Text(
@@ -144,7 +218,7 @@ class _NavItem extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.w800,
-                  color: selected ? AppTheme.dark : Colors.black87,
+                  color: selected ? selectedColor : unselectedColor,
                 ),
               ),
             ],
