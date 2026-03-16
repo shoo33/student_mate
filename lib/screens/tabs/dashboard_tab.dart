@@ -154,19 +154,40 @@ class _DashboardTabState extends State<DashboardTab> {
       'updatedAt': FieldValue.serverTimestamp(),
     });
   }
+  
+  bool _sameQuotes(List<String> a, List<String> b) {
+  if (a.length != b.length) return false;
+  for (int i = 0; i < a.length; i++) {
+    if (a[i] != b[i]) return false;
+  }
+  return true;
+}
 
-  List<String> _quotesFromSettings(Map<String, dynamic> settings, AppText text) {
-    final raw = settings['customQuotes'];
-    if (raw is List) {
-      final list = raw
-          .map((e) => e.toString().trim())
-          .where((e) => e.isNotEmpty)
-          .toList();
-      if (list.isNotEmpty) return list;
+List<String> _quotesFromSettings(Map<String, dynamic> settings, AppText text) {
+  final raw = settings['customQuotes'];
+
+  if (raw is List) {
+    final list = raw
+        .map((e) => e.toString().trim())
+        .where((e) => e.isNotEmpty)
+        .toList();
+
+    final arDefaults = AppText('ar').defaultQuotes;
+    final enDefaults = AppText('en').defaultQuotes;
+
+    final isOldArabicDefaults = _sameQuotes(list, arDefaults);
+    final isOldEnglishDefaults = _sameQuotes(list, enDefaults);
+
+    // إذا كانت العبارات المكتوبة هي فقط الديفولت القديم
+    // لا نعتبرها custom، ونرجع ديفولت حسب اللغة الحالية
+    if (list.isNotEmpty && !isOldArabicDefaults && !isOldEnglishDefaults) {
+      return list;
     }
-    return text.defaultQuotes;
   }
 
+  return text.defaultQuotes;
+}
+  
   @override
   Widget build(BuildContext context) {
     final now = DateTime.now();
@@ -255,7 +276,7 @@ class _DashboardTabState extends State<DashboardTab> {
                       color: quoteColor,
                       borderRadius: BorderRadius.circular(18),
                     ),
-                    child: Text(
+                    child:  Text(
                       quote,
                       textAlign: TextAlign.center,
                       style: const TextStyle(
