@@ -79,30 +79,42 @@ class _LoginScreenState extends State<LoginScreen> {
                   clipBehavior: Clip.none,
                   children: [
                     // البيضاوي خلف الكارد
-                   Positioned(
-  top: -55,
-  left: 70,
-  child: Container(
-    width: 220,
-    height: 150,
-    decoration: BoxDecoration(
-      color: const Color(0xFFD9D0D2),
-      borderRadius: BorderRadius.circular(120),
-    ),
-    child: const Align(
-      alignment: Alignment(0, -0.05),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
+                   // الرأس (نصف البيضاوي) خلف الكارد - الكود الجديد
+Positioned(
+  top: -50,
+  left: 0,
+  right: 0,
+  child: Center(
+    child: Container(
+      width: 210,
+      height: 140,
+      decoration: const BoxDecoration(
+        color: Color(0xFFD9D0D2),
+        borderRadius: BorderRadius.only(
+          topLeft: Radius.circular(120),
+          topRight: Radius.circular(120),
+          bottomLeft: Radius.circular(60),
+          bottomRight: Radius.circular(60),
+        ),
+      ),
+      child: Stack(
         children: [
-          CircleAvatar(radius: 6, backgroundColor: Colors.black),
-          SizedBox(width: 18),
-          CircleAvatar(radius: 6, backgroundColor: Colors.black),
+          Align(
+            alignment: Alignment(0, -0.2),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: const [
+                CircleAvatar(radius: 5, backgroundColor: Colors.black),
+                SizedBox(width: 20),
+                CircleAvatar(radius: 5, backgroundColor: Colors.black),
+              ],
+            ),
+          ),
         ],
       ),
     ),
   ),
-),   
-
+),
                     // الكارد
                     Container(
                       margin: const EdgeInsets.only(top: 90),
@@ -194,4 +206,4 @@ class _LoginScreenState extends State<LoginScreen> {
       ),
     );
   }
-}
+}                                         
